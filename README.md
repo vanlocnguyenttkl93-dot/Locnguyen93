@@ -5,7 +5,13 @@ Game ARPG chạy offline trên máy local, lấy cảm hứng từ cơ chế cô
 - Tài liệu nghiên cứu: [docs/RESEARCH.md](docs/RESEARCH.md)
 - Game: [game/](game/) (HTML5 + JS thuần, không cần cài đặt)
 
-## Chạy
+## Cài trên PC nhà (cách nhanh nhất)
+
+Copy **một file** `dist/MU-Local.html` sang máy, double-click để mở bằng Chrome/Edge/Firefox. Không cần internet hay cài đặt. Bản đầy đủ source: `dist/MU-Local-source.zip`. Sau khi sửa code, chạy `./build.sh` để đóng gói lại.
+
+> Save nằm trong trình duyệt (localStorage) — đổi trình duyệt hoặc xóa dữ liệu duyệt web sẽ mất tiến trình.
+
+## Chạy từ source
 
 ```bash
 cd game

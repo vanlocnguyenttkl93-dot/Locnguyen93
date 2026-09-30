@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>MU Local</title>
+<style>
+  :root { --bg:#0d0f14; --panel:#171b24; --line:#2c3444; --txt:#e6e9ef; --dim:#8b95a8; --gold:#f1c40f; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.4 system-ui,sans-serif; height:100%; overflow:hidden; }
+  #wrap { position:relative; width:960px; max-width:100vw; margin:0 auto; }
+  canvas { display:block; width:100%; height:auto; background:#000; touch-action:none; }
+  #skillbar { display:flex; gap:6px; justify-content:center; padding:6px; flex-wrap:wrap; }
+  .sk { position:relative; min-width:74px; padding:6px 8px; background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:6px; cursor:pointer; overflow:hidden; font-size:12px; }
+  .sk b { color:var(--gold); }
+  .sk .cd { position:absolute; left:0; bottom:0; width:100%; height:0; background:rgba(0,0,0,.6); pointer-events:none; }
+  .sk.on { border-color:var(--gold); }
+  #panel { position:absolute; top:8px; right:8px; width:330px; max-height:calc(100% - 90px); overflow:auto; background:rgba(23,27,36,.96); border:1px solid var(--line); border-radius:8px; display:none; }
+  #tabs { display:flex; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); }
+  #tabs button { flex:1; padding:8px 2px; background:none; border:0; color:var(--dim); cursor:pointer; }
+  #tabs button.act { color:var(--gold); border-bottom:2px solid var(--gold); }
+  #body { padding:10px; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:4px 0; border-bottom:1px solid #222a38; }
+  .row small { color:var(--dim); display:block; }
+  button.b { background:#2a3347; color:var(--txt); border:1px solid var(--line); border-radius:4px; padding:3px 8px; cursor:pointer; font-size:12px; }
+  button.b:hover { border-color:var(--gold); }
+  .exc { color:#2ecc71; } .gold { color:var(--gold); } .dim { color:var(--dim); }
+  #overlay { position:absolute; inset:0; background:rgba(5,7,10,.92); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; }
+  #overlay .cls { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+  #overlay .cls button { width:200px; padding:14px; background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:8px; cursor:pointer; text-align:left; }
+  #overlay .cls button:hover { border-color:var(--gold); }
+  #help { color:var(--dim); font-size:12px; text-align:center; padding:0 8px 8px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="960" height="540"></canvas>
+  <div id="skillbar"></div>
+  <div id="help">Chuột: click đất để đi, click quái để đánh, click NPC để mở shop/quest · WASD đi · 1-3 skill · Q/E potion · F auto · C nhân vật · I túi đồ · J quest · Esc đóng</div>
+  <div id="panel"><div id="tabs"></div><div id="body"></div></div>
+  <div id="overlay"></div>
+</div>
+<script>
+'use strict';
+// MU Local - original ARPG inspired by publicly documented MU Online mechanics.
+// No Webzen assets or code are used.
+(() => {
+const W = 960, H = 540, WORLD_W = 2600, WORLD_H = 1800;
+const TOWN = { x: 1300, y: 900, r: 230 };
+const SAVE_KEY = 'mu-local-save-v1';
+const MAX_BAG = 30, MAX_ITEM_LVL = 13;
+
+const $ = id => document.getElementById(id);
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rint = (a, b) => Math.floor(rnd(a, b + 1));
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+let uidN = Date.now() % 1e9;
+const uid = () => ++uidN;
+
+// ---------------------------------------------------------------- data
+const CLASSES = {
+  DK: { name: 'Dark Knight', color: '#e74c3c', atk: 'str', base: { str: 28, agi: 20, vit: 25, ene: 10 },
+    hpLvl: 3, hpVit: 3, mpLvl: 0.5, mpEne: 1, range: 70, ranged: false, atkCd: 0.55,
+    desc: 'Cận chiến, máu trâu. Skill: Twisting Slash, Falling Slash, Inner Rage.',
+    skills: [
+      { name: 'Twisting Slash', mana: 12, cd: 0.9, kind: 'aoe-self', radius: 115, mult: 1.7 },
+      { name: 'Falling Slash', mana: 18, cd: 1.4, kind: 'melee', range: 110, mult: 2.6 },
+      { name: 'Inner Rage', mana: 25, cd: 20, kind: 'buff', dur: 10, pct: 0.35 }] },
+  DW: { name: 'Dark Wizard', color: '#9b59b6', atk: 'ene', base: { str: 18, agi: 18, vit: 15, ene: 30 },
+    hpLvl: 1, hpVit: 2, mpLvl: 2, mpEne: 2, range: 300, ranged: true, atkCd: 0.7,
+    desc: 'Phép tầm xa, sát thương cao, máu giấy. Skill: Energy Ball, Evil Spirit, Ice Storm.',
+    skills: [
+      { name: 'Energy Ball', mana: 6, cd: 0.5, kind: 'proj', count: 1, spread: 0, speed: 520, mult: 1.3, color: '#5dade2' },
+      { name: 'Evil Spirit', mana: 20, cd: 1.5, kind: 'proj', count: 4, spread: 0.5, speed: 460, mult: 1.4, color: '#af7ac5' },
+      { name: 'Ice Storm', mana: 32, cd: 2.5, kind: 'aoe-cursor', radius: 120, range: 420, mult: 2.8 }] },
+  ELF: { name: 'Fairy Elf', color: '#2ecc71', atk: 'agi', base: { str: 22, agi: 25, vit: 20, ene: 15 },
+    hpLvl: 1.5, hpVit: 2, mpLvl: 1.5, mpEne: 1.5, range: 320, ranged: true, atkCd: 0.65,
+    desc: 'Cung thủ, né cao, tự hồi máu. Skill: Triple Shot, Heal, Penetrate Arrow.',
+    skills: [
+      { name: 'Triple Shot', mana: 8, cd: 0.6, kind: 'proj', count: 3, spread: 0.3, speed: 600, mult: 0.95, color: '#a9dfbf' },
+      { name: 'Heal', mana: 20, cd: 3, kind: 'heal' },
+      { name: 'Penetrate Arrow', mana: 18, cd: 1.5, kind: 'proj', count: 1, spread: 0, speed: 720, mult: 2.2, pierce: true, color: '#f7dc6f' }] },
+};
+
+const MONSTERS = [
+  { name: 'Spider',        lvl: 2,  hp: 40,   dmg: [4, 8],     def: 1,  exp: 12,  zen: 8,   spd: 60,  color: '#7f8c8d', size: 14, count: 22 },
+  { name: 'Budge Dragon',  lvl: 6,  hp: 120,  dmg: [10, 16],   def: 3,  exp: 40,  zen: 25,  spd: 70,  color: '#d35400', size: 17, count: 18 },
+  { name: 'Bull Fighter',  lvl: 12, hp: 320,  dmg: [22, 34],   def: 8,  exp: 120, zen: 60,  spd: 85,  color: '#8e5b3a', size: 20, count: 16 },
+  { name: 'Hound',         lvl: 20, hp: 700,  dmg: [42, 60],   def: 15, exp: 300, zen: 120, spd: 100, color: '#566573', size: 18, count: 14 },
+  { name: 'Lich',          lvl: 30, hp: 1500, dmg: [80, 110],  def: 25, exp: 700, zen: 250, spd: 75,  color: '#5b2c83', size: 20, count: 12 },
+];
+const BOSS = { name: 'Golden Budge Dragon', lvl: 25, hp: 6000, dmg: [60, 90], def: 20, exp: 3000, zen: 1500, spd: 90, color: '#f1c40f', size: 34, boss: true };
+
+const ITEM_TABLES = {
+  weapon: {
+    DK:  ['Kris', 'Short Sword', 'Rapier', 'Katana', 'Sword of Assassin', 'Blade', 'Gladius', 'Falchion'],
+    DW:  ['Skull Staff', 'Angelic Staff', 'Serpent Staff', 'Thunder Staff', 'Gorgon Staff', 'Legendary Staff', 'Resurrection Staff', 'Chaos Lightning Staff'],
+    ELF: ['Short Bow', 'Bow', 'Elven Bow', 'Battle Bow', 'Tiger Bow', 'Silver Bow', 'Chaos Nature Bow', 'Celestial Bow'] },
+  armor: ['Leather Armor', 'Bronze Armor', 'Scale Armor', 'Brass Armor', 'Plate Armor', 'Dragon Armor', 'Legendary Armor', 'Sphinx Armor'],
+  wings: ['Wings of Elf', 'Wings of Heaven', 'Wings of Satan', 'Wings of Spirits', 'Wings of Soul', 'Wings of Dragon', 'Wings of Darkness', 'Cape of Lord'],
+  ring:  ['Ring of Ice', 'Ring of Poison', 'Ring of Fire', 'Ring of Earth', 'Ring of Wind', 'Ring of Magic', 'Ring of Life', 'Ring of Dragon'],
+};
+const SLOTS = ['weapon', 'armor', 'wings', 'ring'];
+
+const QUESTS = [
+  { title: 'Pest Control',      mon: 0,      count: 10, exp: 120,   zen: 150 },
+  { title: 'Dragon Hunt',       mon: 1,      count: 15, exp: 600,   zen: 400 },
+  { title: 'Bull Run',          mon: 2,      count: 20, exp: 2500,  zen: 1200 },
+  { title: 'Hound Pack',        mon: 3,      count: 20, exp: 9000,  zen: 3000 },
+  { title: 'Lich Purge',        mon: 4,      count: 15, exp: 25000, zen: 8000 },
+  { title: 'Golden Invasion',   mon: 'boss', count: 1,  exp: 30000, zen: 15000 },
+];
+const monName = m => m === 'boss' ? BOSS.name : MONSTERS[m].name;
+
+const NPCS = [
+  { id: 'shop',  name: 'Merchant',     x: TOWN.x - 110, y: TOWN.y - 60, color: '#3498db' },
+  { id: 'quest', name: 'Quest Master', x: TOWN.x + 110, y: TOWN.y - 60, color: '#e67e22' },
+];
+
+// ---------------------------------------------------------------- state
+let P = null;            // player
+let monsters = [], projectiles = [], loot = [], texts = [], fx = [], logs = [];
+let bossTimer = 30, target = null, autoMode = false, dest = null;
+let tab = 'char', panelOpen = false, lastSave = 0, shopGear = [];
+const keys = {}; const mouse = { x: 0, y: 0, wx: 0, wy: 0 };
+const cam = { x: 0, y: 0 };
+
+const canvas = $('c'), ctx = canvas.getContext('2d');
+
+// ---------------------------------------------------------------- items
+const effV = (v, lvl, exc) => v * (1 + 0.1 * lvl) * (exc ? 1.15 : 1);
+function makeItem(slot, tier, cls) {
+  tier = clamp(tier, 0, 7);
+  const it = { id: uid(), slot, tier, lvl: 0, exc: Math.random() < 0.04 };
+  if (slot === 'weapon') {
+    const base = 4 + tier * 7;
+    Object.assign(it, { name: ITEM_TABLES.weapon[cls][tier], cls, min: base, max: Math.round(base * 1.6) });
+  } else if (slot === 'armor') {
+    Object.assign(it, { name: ITEM_TABLES.armor[tier], def: 3 + tier * 5 });
+  } else if (slot === 'wings') {
+    Object.assign(it, { name: ITEM_TABLES.wings[tier], def: 8 + tier * 6, pct: 5 + tier * 3 });
+  } else {
+    Object.assign(it, { name: ITEM_TABLES.ring[tier], hp: 10 + tier * 15 });
+  }
+  return it;
+}
+const itemName = it => `${it.exc ? 'Excellent ' : ''}${it.name}${it.lvl ? ' +' + it.lvl : ''}`;
+const itemValue = it => Math.round((it.tier + 1) * 40 * (1 + it.lvl * 0.5) * (it.exc ? 2 : 1));
+function itemDesc(it) {
+  const e = v => Math.round(effV(v, it.lvl, it.exc));
+  if (it.slot === 'weapon') return `Dmg ${e(it.min)}-${e(it.max)}`;
+  if (it.slot === 'armor') return `Def ${e(it.def)}`;
+  if (it.slot === 'wings') return `Def ${e(it.def)}, Dmg +${Math.round(effV(it.pct, it.lvl, it.exc))}%`;
+  return `HP +${e(it.hp)}`;
+}
+function randomDrop(monLvl, cls) {
+  const tier = Math.min(7, Math.floor(monLvl / 4));
+  const opts = ['weapon', 'armor', 'ring'];
+  if (monLvl >= 8) opts.push('wings');
+  const slot = opts[rint(0, opts.length - 1)];
+  const wcls = Math.random() < 0.7 ? cls : Object.keys(CLASSES)[rint(0, 2)];
+  const it = makeItem(slot, tier, wcls);
+  const r = Math.random();
+  it.lvl = r < 0.7 ? 0 : r < 0.9 ? 1 : r < 0.97 ? 2 : 3;
+  return it;
+}
+
+// ---------------------------------------------------------------- player
+function newPlayer(cls) {
+  const c = CLASSES[cls];
+  const p = { cls, level: 1, exp: 0, points: 0, zen: 300, stats: { ...c.base }, hp: 1, mp: 1,
+    equip: { weapon: null, armor: null, wings: null, ring: null }, bag: [],
+    hpPot: 5, mpPot: 3, bless: 2, soul: 0, qi: 0, qa: false, qp: 0,
+    x: TOWN.x, y: TOWN.y + 80, atkCd: 0, cds: [0, 0, 0], potCd: 0, buff: 0, buffPct: 0 };
+  p.equip.weapon = makeItem('weapon', 0, cls); p.equip.weapon.exc = false;
+  p.equip.armor = makeItem('armor', 0, cls); p.equip.armor.exc = false;
+  const s = calc(p); p.hp = s.maxHp; p.mp = s.maxMp;
+  return p;
+}
+function calc(p) {
+  const c = CLASSES[p.cls], s = p.stats, w = p.equip.weapon, a = p.equip.armor, wg = p.equip.wings, r = p.equip.ring;
+  const atk = s[c.atk];
+  const wMin = w ? effV(w.min, w.lvl, w.exc) : 0, wMax = w ? effV(w.max, w.lvl, w.exc) : 0;
+  const wing = wg ? effV(wg.pct, wg.lvl, wg.exc) / 100 : 0;
+  return {
+    min: atk / 4 + wMin + p.level * 0.5, max: atk / 2 + wMax + p.level * 0.8,
+    dmgMul: (1 + wing) * (p.buff > 0 ? 1 + p.buffPct : 1),
+    def: s.agi / 4 + (a ? effV(a.def, a.lvl, a.exc) : 0) + (wg ? effV(wg.def, wg.lvl, wg.exc) : 0),
+    dodge: clamp(s.agi / 500, 0, 0.35),
+    crit: 0.08 + (w && w.exc ? 0.07 : 0),
+    maxHp: Math.round(60 + p.level * c.hpLvl + s.vit * c.hpVit + (r ? effV(r.hp, r.lvl, r.exc) : 0)),
+    maxMp: Math.round(20 + p.level * c.mpLvl + s.ene * c.mpEne),
+  };
+}
+const expNeed = lvl => Math.floor(80 * lvl * Math.pow(1.1, lvl));
+function addExp(n) {
+  P.exp += n;
+  while (P.exp >= expNeed(P.level)) {
+    P.exp -= expNeed(P.level); P.level++; P.points += 5;
+    const s = calc(P); P.hp = s.maxHp; P.mp = s.maxMp;
+    log(`Level up! Bạn đạt level ${P.level} (+5 điểm)`, '#f1c40f');
+    fxRing(P.x, P.y, 80, '#f1c40f');
+  }
+}
+function log(msg, color) { logs.push({ msg, color: color || '#ddd', t: 6 }); if (logs.length > 7) logs.shift(); }
+function floatText(x, y, s, color, big) { texts.push({ x, y, s, color, t: 0.9, big }); }
+function fxRing(x, y, r, color) { fx.push({ x, y, r, color, t: 0.35, max: 0.35 }); }
+
+// ---------------------------------------------------------------- monsters
+function inTown(o) { return dist(o, TOWN) < TOWN.r; }
+function bandOf(d) { return clamp(Math.floor((d - TOWN.r - 40) / 230), 0, MONSTERS.length - 1); }
+function spawnMonster(type) {
+  const T = type === 'boss' ? BOSS : MONSTERS[type];
+  let x, y, tries = 0;
+  do {
+    x = rnd(60, WORLD_W - 60); y = rnd(60, WORLD_H - 60); tries++;
+  } while (tries < 200 && (dist({ x, y }, TOWN) < TOWN.r + 60 || (type !== 'boss' && bandOf(dist({ x, y }, TOWN)) !== type)));
+  const m = { t: T, type, x, y, hx: x, hy: y, hp: T.hp, atkCd: rnd(0, 1), wander: 0, wx: x, wy: y, dead: false };
+  monsters.push(m); return m;
+}
+function initMonsters() {
+  monsters = [];
+  MONSTERS.forEach((T, i) => { for (let k = 0; k < T.count; k++) spawnMonster(i); });
+}
+function killMonster(m) {
+  m.dead = true;
+  if (target === m) target = null;
+  const T = m.t;
+  addExp(Math.round(T.exp * (P.level > T.lvl + 12 ? 0.3 : 1)));
+  dropLoot(m);
+  if (QUESTS[P.qi] && P.qa && P.qp < QUESTS[P.qi].count) {
+    const q = QUESTS[P.qi];
+    if ((q.mon === 'boss' && T.boss) || (q.mon !== 'boss' && !T.boss && MONSTERS[q.mon] === T)) {
+      P.qp++; if (P.qp >= q.count) log(`Quest "${q.title}" hoàn thành! Về gặp Quest Master.`, '#e67e22');
+    }
+  }
+  if (!T.boss) setTimeout(() => spawnMonster(m.type), 8000);
+  refresh();
+}
+function dropLoot(m) {
+  const T = m.t, b = T.boss;
+  const drop = (kind, data) => loot.push({ x: m.x + rnd(-30, 30), y: m.y + rnd(-30, 30), kind, data, t: 60 });
+  drop('zen', Math.round(T.zen * rnd(0.6, 1.4)));
+  if (b) {
+    for (let i = 0; i < 3; i++) { const it = randomDrop(T.lvl + 8, P.cls); it.lvl = rint(1, 4); it.exc = Math.random() < 0.4; drop('item', it); }
+    drop('bless', 5); drop('soul', 2); drop('hpPot', 5); drop('mpPot', 5);
+    log(`${T.name} đã bị hạ! Loot rớt xuống đất.`, '#f1c40f');
+    return;
+  }
+  if (Math.random() < 0.12) drop('item', randomDrop(T.lvl, P.cls));
+  if (Math.random() < 0.10) drop('hpPot', 1);
+  if (Math.random() < 0.06) drop('mpPot', 1);
+  if (Math.random() < 0.03) drop('bless', 1);
+  if (Math.random() < 0.015) drop('soul', 1);
+}
+function pickup(l) {
+  switch (l.kind) {
+    case 'zen': P.zen += l.data; floatText(P.x, P.y - 30, `+${l.data} zen`, '#f1c40f'); break;
+    case 'hpPot': P.hpPot += l.data; log(`Nhặt ${l.data} HP Potion`); break;
+    case 'mpPot': P.mpPot += l.data; log(`Nhặt ${l.data} MP Potion`); break;
+    case 'bless': P.bless += l.data; log(`Nhặt ${l.data} Jewel of Bless`, '#5dade2'); break;
+    case 'soul': P.soul += l.data; log(`Nhặt ${l.data} Jewel of Soul`, '#f39c12'); break;
+    case 'item':
+      if (P.bag.length >= MAX_BAG) { log('Túi đồ đầy!', '#e74c3c'); return false; }
+      P.bag.push(l.data); log(`Nhặt ${itemName(l.data)}`, l.data.exc ? '#2ecc71' : '#ddd'); break;
+  }
+  refresh(); return true;
+}
+
+// ---------------------------------------------------------------- combat
+function hitMonster(m, raw, skillMul) {
+  if (m.dead) return;
+  const s = calc(P);
+  let dmg = rnd(s.min, s.max) * (skillMul || 1) * s.dmgMul;
+  const crit = Math.random() < s.crit; if (crit) dmg *= 1.5;
+  dmg = Math.max(1, Math.round(dmg - m.t.def * 0.6));
+  m.hp -= dmg; m.aggro = true;
+  floatText(m.x, m.y - m.t.size - 6, (crit ? '!' : '') + dmg, crit ? '#f39c12' : '#fff', crit);
+  if (m.hp <= 0) killMonster(m);
+}
+function hurtPlayer(m) {
+  const s = calc(P);
+  if (Math.random() < s.dodge) { floatText(P.x, P.y - 26, 'MISS', '#95a5a6'); return; }
+  const dmg = Math.max(1, Math.round(rint(m.t.dmg[0], m.t.dmg[1]) - s.def * 0.5));
+  P.hp -= dmg; floatText(P.x, P.y - 26, `-${dmg}`, '#e74c3c');
+  if (P.hp <= 0) die();
+}
+function die() {
+  log('Bạn đã chết! Hồi sinh tại thị trấn (mất 5% EXP).', '#e74c3c');
+  P.exp = Math.floor(P.exp * 0.95);
+  const s = calc(P); P.hp = s.maxHp; P.mp = s.maxMp;
+  P.x = TOWN.x; P.y = TOWN.y + 80; target = null; dest = null;
+}
+function aimPoint() { return target && !target.dead ? target : { x: mouse.wx, y: mouse.wy }; }
+function shoot(count, spread, speed, mul, pierce, color) {
+  const a = aimPoint(), base = Math.atan2(a.y - P.y, a.x - P.x);
+  for (let i = 0; i < count; i++) {
+    const ang = count === 1 ? base : base - spread / 2 + spread * i / (count - 1);
+    projectiles.push({ x: P.x, y: P.y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, mul, pierce, color, life: 0.9, hit: new Set() });
+  }
+}
+function basicAttack() {
+  const c = CLASSES[P.cls];
+  if (P.atkCd > 0) return;
+  P.atkCd = Math.max(0.3, c.atkCd - P.stats.agi / 2500);
+  if (c.ranged) shoot(1, 0, 650, 1, false, P.cls === 'DW' ? '#5dade2' : '#d5f5e3');
+  else if (target && !target.dead) { const t = target; fxRing(t.x, t.y, 26, '#fff'); hitMonster(t, 0, 1); }
+}
+function useSkill(i) {
+  const c = CLASSES[P.cls], sk = c.skills[i];
+  if (!sk || P.cds[i] > 0) return false;
+  const s = calc(P);
+  if (P.mp < sk.mana) { if (!autoMode) log('Không đủ mana', '#5dade2'); return false; }
+  const live = target && !target.dead ? target : null;
+  switch (sk.kind) {
+    case 'aoe-self':
+      fxRing(P.x, P.y, sk.radius, c.color);
+      monsters.forEach(m => { if (!m.dead && dist(m, P) < sk.radius + m.t.size) hitMonster(m, 0, sk.mult); });
+      break;
+    case 'melee':
+      if (!live || dist(live, P) > sk.range) { if (!autoMode) log('Cần mục tiêu trong tầm', '#aaa'); return false; }
+      hitMonster(live, 0, sk.mult); fxRing(live.x, live.y, 40, c.color); break;
+    case 'buff': P.buff = sk.dur; P.buffPct = sk.pct; fxRing(P.x, P.y, 60, '#e67e22'); log(`${sk.name}: +${sk.pct * 100}% sát thương`, '#e67e22'); break;
+    case 'proj': shoot(sk.count, sk.spread, sk.speed, sk.mult, sk.pierce, sk.color); break;
+    case 'aoe-cursor': {
+      const a = aimPoint(); const d = dist(a, P);
+      const cx = d > sk.range ? P.x + (a.x - P.x) / d * sk.range : a.x, cy = d > sk.range ? P.y + (a.y - P.y) / d * sk.range : a.y;
+      fxRing(cx, cy, sk.radius, '#85c1e9');
+      monsters.forEach(m => { if (!m.dead && dist(m, { x: cx, y: cy }) < sk.radius + m.t.size) hitMonster(m, 0, sk.mult); });
+      break;
+    }
+    case 'heal': {
+      const amt = Math.round(40 + P.stats.ene * 2 + P.level * 2);
+      P.hp = Math.min(s.maxHp, P.hp + amt); floatText(P.x, P.y - 26, `+${amt}`, '#2ecc71'); fxRing(P.x, P.y, 50, '#2ecc71'); break;
+    }
+  }
+  P.mp -= sk.mana; P.cds[i] = sk.cd; return true;
+}
+function usePotion(kind) {
+  if (P.potCd > 0) return false;
+  const s = calc(P);
+  if (kind === 'hp' && P.hpPot > 0 && P.hp < s.maxHp) { P.hpPot--; P.hp = Math.min(s.maxHp, P.hp + Math.round(s.maxHp * 0.4)); P.potCd = 0.8; refresh(); return true; }
+  if (kind === 'mp' && P.mpPot > 0 && P.mp < s.maxMp) { P.mpPot--; P.mp = Math.min(s.maxMp, P.mp + Math.round(s.maxMp * 0.4)); P.potCd = 0.8; refresh(); return true; }
+  return false;
+}
+
+// ---------------------------------------------------------------- update
+function nearestMonster(maxD) {
+  let best = null, bd = maxD;
+  for (const m of monsters) {
+    if (m.dead || inTown(m)) continue;
+    const d = dist(m, P); if (d < bd) { bd = d; best = m; }
+  }
+  return best;
+}
+function moveTo(o, tx, ty, spd, dt) {
+  const d = Math.hypot(tx - o.x, ty - o.y); if (d < 2) return true;
+  const st = Math.min(d, spd * dt); o.x += (tx - o.x) / d * st; o.y += (ty - o.y) / d * st;
+  o.x = clamp(o.x, 10, WORLD_W - 10); o.y = clamp(o.y, 10, WORLD_H - 10);
+  return d - st < 2;
+}
+function updatePlayer(dt) {
+  const c = CLASSES[P.cls], s = calc(P), spd = 190;
+  P.atkCd -= dt; P.potCd -= dt; P.buff -= dt;
+  for (let i = 0; i < 3; i++) P.cds[i] -= dt;
+  const regen = inTown(P) ? 0.05 : 0.008;
+  P.hp = Math.min(s.maxHp, P.hp + s.maxHp * regen * dt);
+  P.mp = Math.min(s.maxMp, P.mp + s.maxMp * (inTown(P) ? 0.08 : 0.015) * dt);
+
+  // manual WASD
+  let dx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), dy = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
+  if (dx || dy) { const l = Math.hypot(dx, dy); P.x = clamp(P.x + dx / l * spd * dt, 10, WORLD_W - 10); P.y = clamp(P.y + dy / l * spd * dt, 10, WORLD_H - 10); dest = null; if (!autoMode) target = null; }
+
+  if (autoMode) autoLogic(s);
+  if (target && target.dead) target = null;
+  if (target) {
+    const reach = c.range * (c.ranged ? 1 : 0.9);
+    if (dist(target, P) > reach) moveTo(P, target.x, target.y, spd, dt);
+    else basicAttack();
+  } else if (dest) {
+    if (moveTo(P, dest.x, dest.y, spd, dt)) dest = null;
+  }
+}
+function autoLogic(s) {
+  if (P.hp < s.maxHp * 0.4) usePotion('hp');
+  if (P.mp < s.maxMp * 0.25) usePotion('mp');
+  if (P.hp < s.maxHp * 0.2 && P.hpPot === 0) { log('Auto: HP thấp, dịch chuyển về thị trấn', '#e74c3c'); P.x = TOWN.x; P.y = TOWN.y + 80; target = null; autoMode = false; syncSkillbar(); return; }
+  if (!target || target.dead) {
+    const m = nearestMonster(650);
+    target = m && m.t.lvl <= P.level + 10 ? m : null;
+  }
+  if (target) {
+    if (CLASSES[P.cls].skills[2].kind === 'buff' && P.buff <= 0) useSkill(2);
+    if (P.cls === 'ELF' && P.hp < s.maxHp * 0.6) useSkill(1);
+    const order = P.cls === 'ELF' ? [2, 0] : [1, 0];
+    for (const i of order) if (useSkill(i)) break;
+  }
+}
+function updateMonsters(dt) {
+  monsters = monsters.filter(m => !m.dead);
+  for (const m of monsters) {
+    const T = m.t, d = dist(m, P), aggroR = T.boss ? 320 : 190;
+    m.atkCd -= dt;
+    if (!inTown(P) && (d < aggroR || (m.aggro && d < 500))) {
+      const reach = T.size + 14;
+      if (d > reach) {
+        const nx = m.x + (P.x - m.x) / d * T.spd * dt, ny = m.y + (P.y - m.y) / d * T.spd * dt;
+        if (dist({ x: nx, y: ny }, TOWN) > TOWN.r) { m.x = nx; m.y = ny; }
+      } else if (m.atkCd <= 0) { m.atkCd = T.boss ? 1.0 : 1.3; hurtPlayer(m); }
+    } else {
+      m.aggro = false; m.wander -= dt;
+      if (m.wander <= 0) { m.wander = rnd(2, 5); m.wx = m.hx + rnd(-90, 90); m.wy = m.hy + rnd(-90, 90); }
+      const nx = m.x + Math.sign(m.wx - m.x) * Math.min(Math.abs(m.wx - m.x), T.spd * 0.35 * dt);
+      const ny = m.y + Math.sign(m.wy - m.y) * Math.min(Math.abs(m.wy - m.y), T.spd * 0.35 * dt);
+      if (dist({ x: nx, y: ny }, TOWN) > TOWN.r) { m.x = nx; m.y = ny; }
+    }
+  }
+}
+function updateProjectiles(dt) {
+  for (const p of projectiles) {
+    p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+    for (const m of monsters) {
+      if (m.dead || p.hit.has(m) || dist(m, p) > m.t.size + 6) continue;
+      p.hit.add(m); hitMonster(m, 0, p.mul);
+      if (!p.pierce) { p.life = 0; break; }
+    }
+  }
+  projectiles = projectiles.filter(p => p.life > 0);
+}
+function updateMisc(dt) {
+  texts.forEach(t => { t.t -= dt; t.y -= 28 * dt; }); texts = texts.filter(t => t.t > 0);
+  fx.forEach(f => f.t -= dt); fx = fx.filter(f => f.t > 0);
+  logs.forEach(l => l.t -= dt); logs = logs.filter(l => l.t > 0);
+  for (const l of loot) { l.t -= dt; if (dist(l, P) < 50 && pickup(l)) l.t = 0; }
+  loot = loot.filter(l => l.t > 0);
+  bossTimer -= dt;
+  if (bossTimer <= 0 && !monsters.some(m => m.t.boss && !m.dead)) {
+    const b = spawnMonster('boss'); bossTimer = 150;
+    log(`⚠ ${BOSS.name} xuất hiện quanh (${Math.round(b.x)}, ${Math.round(b.y)})!`, '#f1c40f');
+  }
+  if (performance.now() - lastSave > 10000) save();
+}
+
+// ---------------------------------------------------------------- render
+const rocks = Array.from({ length: 140 }, (_, i) => { const r = Math.sin(i * 91.7) * 43758.5; const q = Math.sin(i * 12.3) * 9631.1;
+  return { x: (r - Math.floor(r)) * WORLD_W, y: (q - Math.floor(q)) * WORLD_H, s: 4 + (i % 5) * 2 }; });
+const ZONE_COLORS = ['#22301f', '#2b3320', '#33301f', '#33261f', '#2a1f33'];
+function draw() {
+  cam.x = clamp(P.x - W / 2, 0, WORLD_W - W); cam.y = clamp(P.y - H / 2, 0, WORLD_H - H);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#150f1c'; ctx.fillRect(0, 0, W, H);
+  ctx.translate(-cam.x, -cam.y);
+  ctx.fillStyle = '#150f1c'; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  for (let i = MONSTERS.length - 1; i >= 0; i--) {
+    ctx.beginPath(); ctx.arc(TOWN.x, TOWN.y, TOWN.r + 40 + (i + 1) * 230, 0, 7); ctx.fillStyle = ZONE_COLORS[i]; ctx.fill();
+  }
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, WORLD_W, WORLD_H); ctx.clip();
+  ctx.strokeStyle = 'rgba(255,255,255,.04)'; ctx.lineWidth = 1;
+  for (let x = 0; x <= WORLD_W; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke(); }
+  for (let y = 0; y <= WORLD_H; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,.07)'; rocks.forEach(r => { if (dist(r, TOWN) > TOWN.r + 20) { ctx.beginPath(); ctx.arc(r.x, r.y, r.s, 0, 7); ctx.fill(); } });
+  // town
+  ctx.beginPath(); ctx.arc(TOWN.x, TOWN.y, TOWN.r, 0, 7); ctx.fillStyle = '#4a4f5c'; ctx.fill();
+  ctx.lineWidth = 4; ctx.strokeStyle = '#8b95a8'; ctx.stroke();
+  ctx.fillStyle = '#aab'; ctx.font = '13px system-ui'; ctx.textAlign = 'center'; ctx.fillText('LORENCIA (Safe Zone)', TOWN.x, TOWN.y + 20);
+  NPCS.forEach(n => { ctx.fillStyle = n.color; ctx.fillRect(n.x - 12, n.y - 12, 24, 24); ctx.fillStyle = '#fff'; ctx.fillText(n.name, n.x, n.y - 18); });
+  // loot
+  loot.forEach(l => {
+    const col = { zen: '#f1c40f', item: '#ecf0f1', hpPot: '#e74c3c', mpPot: '#3498db', bless: '#5dade2', soul: '#f39c12' }[l.kind];
+    ctx.fillStyle = l.kind === 'item' && l.data.exc ? '#2ecc71' : col;
+    ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(Math.PI / 4); ctx.fillRect(-5, -5, 10, 10); ctx.restore();
+    if (l.kind === 'item') { ctx.fillStyle = ctx.fillStyle; ctx.font = '11px system-ui'; ctx.fillText(itemName(l.data), l.x, l.y - 10); }
+  });
+  // monsters
+  monsters.forEach(m => {
+    if (m.dead) return; const T = m.t;
+    ctx.beginPath(); ctx.arc(m.x, m.y, T.size, 0, 7); ctx.fillStyle = T.color; ctx.fill();
+    ctx.lineWidth = m === target ? 3 : 1; ctx.strokeStyle = m === target ? '#fff' : '#000'; ctx.stroke();
+    ctx.fillStyle = '#111'; ctx.fillRect(m.x - T.size, m.y - T.size - 9, T.size * 2, 4);
+    ctx.fillStyle = '#e74c3c'; ctx.fillRect(m.x - T.size, m.y - T.size - 9, T.size * 2 * Math.max(0, m.hp / T.hp), 4);
+    if (m === target || T.boss) { ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.fillText(`${T.name} Lv${T.lvl}`, m.x, m.y - T.size - 13); }
+  });
+  // projectiles
+  projectiles.forEach(p => { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 7); ctx.fill(); });
+  // player
+  const c = CLASSES[P.cls];
+  if (P.equip.wings) { ctx.fillStyle = 'rgba(200,220,255,.55)'; ctx.beginPath(); ctx.ellipse(P.x - 18, P.y, 16, 8, -0.5, 0, 7); ctx.ellipse(P.x + 18, P.y, 16, 8, 0.5, 0, 7); ctx.fill(); }
+  ctx.beginPath(); ctx.arc(P.x, P.y, 15, 0, 7); ctx.fillStyle = c.color; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = P.buff > 0 ? '#e67e22' : '#fff'; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.fillText(`${c.name} Lv${P.level}`, P.x, P.y - 22);
+  // fx
+  fx.forEach(f => { ctx.globalAlpha = f.t / f.max; ctx.strokeStyle = f.color; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - f.t / f.max * 0.3), 0, 7); ctx.stroke(); ctx.globalAlpha = 1; });
+  texts.forEach(t => { ctx.globalAlpha = clamp(t.t / 0.5, 0, 1); ctx.fillStyle = t.color; ctx.font = (t.big ? 'bold 18px' : '13px') + ' system-ui'; ctx.fillText(t.s, t.x, t.y); ctx.globalAlpha = 1; });
+  drawHud();
+}
+function bar(x, y, w, h, frac, color, label) {
+  ctx.fillStyle = '#000a'; ctx.fillRect(x, y, w, h); ctx.fillStyle = color; ctx.fillRect(x, y, w * clamp(frac, 0, 1), h);
+  ctx.strokeStyle = '#fff3'; ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText(label, x + w / 2, y + h - 3);
+}
+function drawHud() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.textAlign = 'center';
+  const s = calc(P);
+  bar(10, H - 62, 210, 16, P.hp / s.maxHp, '#c0392b', `HP ${Math.ceil(P.hp)}/${s.maxHp}`);
+  bar(10, H - 42, 210, 16, P.mp / s.maxMp, '#2e86c1', `MP ${Math.ceil(P.mp)}/${s.maxMp}`);
+  bar(10, H - 22, 210, 12, P.exp / expNeed(P.level), '#d4ac0d', `Lv ${P.level}  EXP ${Math.floor(P.exp / expNeed(P.level) * 100)}%`);
+  ctx.textAlign = 'left'; ctx.fillStyle = '#f1c40f'; ctx.font = '13px system-ui';
+  ctx.fillText(`Zen: ${P.zen.toLocaleString()}   HP pot: ${P.hpPot}   MP pot: ${P.mpPot}${P.points ? '   ★ ' + P.points + ' điểm stat (C)' : ''}`, 10, 18);
+  if (autoMode) { ctx.fillStyle = '#2ecc71'; ctx.fillText('AUTO BATTLE (F)', 10, 36); }
+  logs.forEach((l, i) => { ctx.globalAlpha = clamp(l.t, 0, 1); ctx.fillStyle = l.color; ctx.fillText(l.msg, 240, H - 12 - (logs.length - 1 - i) * 16); ctx.globalAlpha = 1; });
+  if (target && !target.dead) { ctx.textAlign = 'center'; bar(W / 2 - 110, 10, 220, 14, target.hp / target.t.hp, '#c0392b', `${target.t.name} ${Math.ceil(target.hp)}/${target.t.hp}`); }
+  // minimap
+  const mw = 150, mh = 104, mx = W - mw - 10, my = H - mh - 10; ctx.fillStyle = '#000a'; ctx.fillRect(mx, my, mw, mh); ctx.strokeStyle = '#fff4'; ctx.strokeRect(mx, my, mw, mh);
+  const sx = mw / WORLD_W, sy = mh / WORLD_H;
+  ctx.fillStyle = '#8b95a8'; ctx.beginPath(); ctx.arc(mx + TOWN.x * sx, my + TOWN.y * sy, TOWN.r * sx, 0, 7); ctx.fill();
+  monsters.forEach(m => { ctx.fillStyle = m.t.boss ? '#f1c40f' : '#e74c3c'; ctx.fillRect(mx + m.x * sx - 1, my + m.y * sy - 1, m.t.boss ? 4 : 2, m.t.boss ? 4 : 2); });
+  ctx.fillStyle = '#fff'; ctx.fillRect(mx + P.x * sx - 2, my + P.y * sy - 2, 4, 4);
+}
+
+// ---------------------------------------------------------------- UI panels
+function stat(name, key) {
+  return `<div class="row"><span>${name} <b>${P.stats[key]}</b></span>${P.points ? `<span><button class="b" data-act="stat" data-k="${key}" data-n="1">+1</button> <button class="b" data-act="stat" data-k="${key}" data-n="5">+5</button></span>` : ''}</div>`;
+}
+function renderTab() {
+  const el = $('body'), s = calc(P), c = CLASSES[P.cls];
+  if (tab === 'char') {
+    el.innerHTML = `<div class="row"><b class="gold">${c.name} Lv ${P.level}</b><span class="dim">EXP ${P.exp}/${expNeed(P.level)}</span></div>
+      <div class="dim">Điểm chưa cộng: <b class="gold">${P.points}</b></div>
+      ${stat('STR', 'str')}${stat('AGI', 'agi')}${stat('VIT', 'vit')}${stat('ENE', 'ene')}
+      <div class="row"><span>Sát thương</span><span>${Math.round(s.min * s.dmgMul)}-${Math.round(s.max * s.dmgMul)}</span></div>
+      <div class="row"><span>Phòng thủ</span><span>${Math.round(s.def)}</span></div>
+      <div class="row"><span>Né / Chí mạng</span><span>${(s.dodge * 100).toFixed(1)}% / ${(s.crit * 100).toFixed(0)}%</span></div>
+      <div class="row"><span>Jewel Bless / Soul</span><span>${P.bless} / ${P.soul}</span></div>
+      <h4>Trang bị</h4>` + SLOTS.map(sl => { const it = P.equip[sl];
+        return `<div class="row"><span>${it ? `<span class="${it.exc ? 'exc' : ''}">${itemName(it)}</span><small>${itemDesc(it)}</small>` : `<span class="dim">(${sl} trống)</span>`}</span>${it ? `<span><button class="b" data-act="unequip" data-s="${sl}">Tháo</button> <button class="b" data-act="upg" data-id="${it.id}">Nâng</button></span>` : ''}</div>`; }).join('')
+      + `<p><button class="b" data-act="reset">Xóa save / chọn lại class</button></p>`;
+  } else if (tab === 'bag') {
+    el.innerHTML = `<div class="dim">Túi đồ ${P.bag.length}/${MAX_BAG} · Bless ${P.bless} · Soul ${P.soul}</div>` +
+      (P.bag.map(it => `<div class="row"><span class="${it.exc ? 'exc' : ''}">${itemName(it)}<small>${itemDesc(it)} · ${it.slot}${it.cls ? ' · ' + it.cls : ''}</small></span>
+        <span><button class="b" data-act="equip" data-id="${it.id}">Mặc</button> <button class="b" data-act="upg" data-id="${it.id}">Nâng</button> <button class="b" data-act="sell" data-id="${it.id}">Bán ${Math.round(itemValue(it) * 0.4)}</button></span></div>`).join('') || '<p class="dim">Trống</p>') +
+      `<p class="dim">Nâng cấp: +0→+6 dùng Jewel of Bless (chắc chắn). +6→+13 dùng Jewel of Soul (có tỉ lệ; từ +9 thất bại sẽ tụt 1 cấp).</p>`;
+  } else if (tab === 'quest') {
+    const q = QUESTS[P.qi];
+    if (!q) el.innerHTML = '<p class="gold">Bạn đã hoàn thành toàn bộ quest!</p>';
+    else {
+      const done = P.qa && P.qp >= q.count;
+      el.innerHTML = `<h4 class="gold">${q.title}</h4><p>Tiêu diệt <b>${q.count}</b> ${monName(q.mon)}.</p><p>Thưởng: ${q.exp.toLocaleString()} EXP, ${q.zen.toLocaleString()} zen</p>` +
+        (P.qa ? `<p>Tiến độ: <b>${P.qp}/${q.count}</b></p>` : '') +
+        (!P.qa ? '<button class="b" data-act="qaccept">Nhận quest</button>' : done ? '<button class="b" data-act="qclaim">Trả quest</button>' : '<span class="dim">Đang thực hiện…</span>');
+    }
+  } else if (tab === 'shop') {
+    const near = NPCS.some(n => n.id === 'shop' && dist(n, P) < 160);
+    const buy = (label, price, act, extra) => `<div class="row"><span>${label}</span><button class="b" data-act="${act}" ${extra || ''}>${price} zen</button></div>`;
+    el.innerHTML = (near ? '' : '<p class="dim">Hãy lại gần Merchant để mua bán.</p>') + `<div class="gold">Zen: ${P.zen.toLocaleString()}</div>` +
+      buy('HP Potion', 30, 'buy', 'data-k="hpPot" data-p="30"') + buy('MP Potion', 40, 'buy', 'data-k="mpPot" data-p="40"') +
+      buy('Jewel of Bless', 500, 'buy', 'data-k="bless" data-p="500"') + buy('Jewel of Soul', 900, 'buy', 'data-k="soul" data-p="900"') +
+      shopGear.map((it, i) => buy(`<span>${itemName(it)}<small>${itemDesc(it)}</small></span>`, itemValue(it) * 2, 'buygear', `data-i="${i}"`)).join('');
+  }
+  $('tabs').innerHTML = [['char', 'Nhân vật'], ['bag', 'Túi đồ'], ['quest', 'Quest'], ['shop', 'Shop']]
+    .map(([k, n]) => `<button data-tab="${k}" class="${k === tab ? 'act' : ''}">${n}</button>`).join('');
+}
+function openPanel(t) { panelOpen = true; tab = t || tab; $('panel').style.display = 'block'; renderTab(); }
+function closePanel() { panelOpen = false; $('panel').style.display = 'none'; }
+function refresh() { if (panelOpen) renderTab(); }
+function bagRemove(id) { const i = P.bag.findIndex(x => x.id === id); return i >= 0 ? P.bag.splice(i, 1)[0] : null; }
+function findItem(id) { return P.bag.find(x => x.id === id) || SLOTS.map(s => P.equip[s]).find(x => x && x.id === id); }
+function equip(id) {
+  const it = P.bag.find(x => x.id === id); if (!it) return;
+  if (it.cls && it.cls !== P.cls) { log(`Vũ khí này chỉ dành cho ${CLASSES[it.cls].name}`, '#e74c3c'); return; }
+  bagRemove(id); const old = P.equip[it.slot]; P.equip[it.slot] = it; if (old) P.bag.push(old);
+  const s = calc(P); P.hp = Math.min(P.hp, s.maxHp);
+}
+function upgrade(id) {
+  const it = findItem(id); if (!it) return;
+  if (it.lvl >= MAX_ITEM_LVL) { log('Item đã đạt +13', '#aaa'); return; }
+  if (it.lvl < 6) {
+    if (P.bless < 1) { log('Cần Jewel of Bless', '#e74c3c'); return; }
+    P.bless--; it.lvl++; log(`${itemName(it)} nâng cấp thành công!`, '#2ecc71'); fxRing(P.x, P.y, 50, '#5dade2');
+  } else {
+    if (P.soul < 1) { log('Cần Jewel of Soul', '#e74c3c'); return; }
+    P.soul--; const rate = Math.max(0.15, 0.65 - (it.lvl - 6) * 0.08);
+    if (Math.random() < rate) { it.lvl++; log(`${itemName(it)} nâng cấp thành công! (${Math.round(rate * 100)}%)`, '#2ecc71'); fxRing(P.x, P.y, 50, '#f39c12'); }
+    else { const drop = it.lvl >= 9; if (drop) it.lvl--; log(`Nâng cấp thất bại (${Math.round(rate * 100)}%)${drop ? ' — item tụt cấp' : ''}`, '#e74c3c'); }
+  }
+  refresh();
+}
+$('panel').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.tab) { tab = b.dataset.tab; renderTab(); return; }
+  const a = b.dataset.act, d = b.dataset;
+  if (a === 'stat') { const n = Math.min(+d.n, P.points); P.stats[d.k] += n; P.points -= n; }
+  else if (a === 'equip') equip(+d.id);
+  else if (a === 'unequip') { if (P.bag.length < MAX_BAG) { P.bag.push(P.equip[d.s]); P.equip[d.s] = null; } else log('Túi đồ đầy!', '#e74c3c'); }
+  else if (a === 'sell') { const it = bagRemove(+d.id); if (it) P.zen += Math.round(itemValue(it) * 0.4); }
+  else if (a === 'upg') { upgrade(+d.id); return; }
+  else if (a === 'qaccept') { P.qa = true; P.qp = 0; }
+  else if (a === 'qclaim') { const q = QUESTS[P.qi]; addExp(q.exp); P.zen += q.zen; P.qi++; P.qa = false; P.qp = 0; log(`Nhận thưởng quest: ${q.exp} EXP, ${q.zen} zen`, '#e67e22'); }
+  else if (a === 'buy') { if (!nearNpc('shop')) return log('Lại gần Merchant!', '#aaa'); const p = +d.p; if (P.zen >= p) { P.zen -= p; P[d.k]++; } else log('Không đủ zen', '#e74c3c'); }
+  else if (a === 'buygear') { if (!nearNpc('shop')) return log('Lại gần Merchant!', '#aaa'); const it = shopGear[+d.i], p = itemValue(it) * 2;
+    if (P.bag.length >= MAX_BAG) log('Túi đồ đầy!', '#e74c3c'); else if (P.zen < p) log('Không đủ zen', '#e74c3c'); else { P.zen -= p; P.bag.push({ ...it, id: uid() }); } }
+  else if (a === 'reset') { if (confirm('Xóa toàn bộ tiến trình?')) { try { localStorage.removeItem(SAVE_KEY); } catch (_) {} location.reload(); } return; }
+  renderTab();
+});
+const nearNpc = id => NPCS.some(n => n.id === id && dist(n, P) < 160);
+
+// ---------------------------------------------------------------- skillbar
+function syncSkillbar() {
+  const c = CLASSES[P.cls];
+  $('skillbar').innerHTML = c.skills.map((s, i) => `<button class="sk" data-sk="${i}"><b>${i + 1}</b> ${s.name}<br><small>${s.mana} MP</small><div class="cd" id="cd${i}"></div></button>`).join('')
+    + `<button class="sk" data-pot="hp"><b>Q</b> HP Pot</button><button class="sk" data-pot="mp"><b>E</b> MP Pot</button><button class="sk ${autoMode ? 'on' : ''}" id="autoBtn"><b>F</b> Auto</button>`;
+}
+$('skillbar').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || !P) return;
+  if (b.dataset.sk) useSkill(+b.dataset.sk); else if (b.dataset.pot) usePotion(b.dataset.pot); else toggleAuto();
+});
+function toggleAuto() { autoMode = !autoMode; if (!autoMode) target = null; const b = $('autoBtn'); if (b) b.classList.toggle('on', autoMode); }
+
+// ---------------------------------------------------------------- input
+function toWorld(e) {
+  const r = canvas.getBoundingClientRect(); mouse.x = (e.clientX - r.left) * W / r.width; mouse.y = (e.clientY - r.top) * H / r.height;
+  mouse.wx = mouse.x + cam.x; mouse.wy = mouse.y + cam.y;
+}
+canvas.addEventListener('pointermove', toWorld);
+canvas.addEventListener('pointerdown', e => {
+  if (!P) return; toWorld(e);
+  const w = { x: mouse.wx, y: mouse.wy };
+  const npc = NPCS.find(n => Math.abs(n.x - w.x) < 20 && Math.abs(n.y - w.y) < 20);
+  if (npc) { if (dist(npc, P) < 160) openPanel(npc.id); else { log('Lại gần NPC hơn', '#aaa'); dest = { x: npc.x, y: npc.y + 40 }; } return; }
+  const m = monsters.find(m => !m.dead && dist(m, w) < m.t.size + 8);
+  if (m && !inTown(m)) { target = m; dest = null; return; }
+  target = null; dest = w; autoMode && toggleAuto();
+});
+addEventListener('keydown', e => {
+  if (!P) return; const k = e.key.toLowerCase();
+  if ('wasd'.includes(k) && k.length === 1) keys[k] = true;
+  if (k === '1' || k === '2' || k === '3') useSkill(+k - 1);
+  else if (k === 'q') usePotion('hp'); else if (k === 'e') usePotion('mp');
+  else if (k === 'f') toggleAuto();
+  else if (k === 'c') panelOpen && tab === 'char' ? closePanel() : openPanel('char');
+  else if (k === 'i') panelOpen && tab === 'bag' ? closePanel() : openPanel('bag');
+  else if (k === 'j') panelOpen && tab === 'quest' ? closePanel() : openPanel('quest');
+  else if (k === 'escape') closePanel();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ---------------------------------------------------------------- save / boot
+function save() {
+  lastSave = performance.now(); if (!P) return;
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(P)); } catch (_) {}
+}
+addEventListener('beforeunload', save);
+function loadSave() { try { const s = localStorage.getItem(SAVE_KEY); return s ? JSON.parse(s) : null; } catch (_) { return null; } }
+function makeShopGear() { shopGear = [makeItem('weapon', 1, P.cls), makeItem('weapon', 2, P.cls), makeItem('armor', 1, P.cls), makeItem('armor', 2, P.cls)].map(i => (i.exc = false, i)); }
+function start(p) {
+  P = p; P.cds = [0, 0, 0]; P.atkCd = 0; P.potCd = 0; P.buff = 0;
+  $('overlay').style.display = 'none';
+  initMonsters(); makeShopGear(); syncSkillbar();
+  log(`Chào mừng ${CLASSES[P.cls].name}! Ra ngoài thị trấn để săn quái. Nhận quest ở Quest Master.`, '#5dade2');
+  window.MU = { get P() { return P; }, get monsters() { return monsters; }, calc, useSkill, spawnMonster };
+  let last = performance.now();
+  (function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    updatePlayer(dt); updateMonsters(dt); updateProjectiles(dt); updateMisc(dt);
+    P.cds.forEach((v, i) => { const el = $('cd' + i), max = CLASSES[P.cls].skills[i].cd; if (el) el.style.height = (v > 0 ? clamp(v / max, 0, 1) * 100 : 0) + '%'; });
+    draw(); requestAnimationFrame(loop);
+  })(last);
+}
+function menu() {
+  const saved = loadSave();
+  $('overlay').innerHTML = `<h1>MU Local</h1><p class="dim">Game ARPG offline lấy cảm hứng từ MU Online — chọn class để bắt đầu</p>
+    <div class="cls">${Object.entries(CLASSES).map(([k, c]) => `<button data-cls="${k}"><b style="color:${c.color}">${c.name}</b><br><small class="dim">STR ${c.base.str} · AGI ${c.base.agi} · VIT ${c.base.vit} · ENE ${c.base.ene}</small><br><small>${c.desc}</small></button>`).join('')}</div>
+    ${saved ? `<button class="b" id="cont">Tiếp tục: ${CLASSES[saved.cls].name} Lv ${saved.level}</button>` : ''}`;
+  $('overlay').onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.cls) start(newPlayer(b.dataset.cls)); else if (b.id === 'cont') start(saved);
+  };
+}
+menu();
+})();
+
+</script>
+</body>
+</html>
