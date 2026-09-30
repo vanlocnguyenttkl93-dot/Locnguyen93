@@ -2,8 +2,8 @@
 // MU Local - original ARPG inspired by publicly documented MU Online mechanics.
 // No Webzen assets or code are used.
 (() => {
-const W = 960, H = 540, WORLD_W = 2600, WORLD_H = 1800;
-const TOWN = { x: 1300, y: 900, r: 230 };
+const W = 960, H = 540;
+let WORLD_W = 2600, WORLD_H = 1800, TOWN = { x: 1300, y: 900, r: 230 }, MAP = null;
 const SAVE_KEY = 'mu-local-save-v1';
 const MAX_BAG = 30, MAX_ITEM_LVL = 13;
 
@@ -40,23 +40,61 @@ const CLASSES = {
       { name: 'Penetrate Arrow', mana: 18, cd: 1.5, kind: 'proj', count: 1, spread: 0, speed: 720, mult: 2.2, pierce: true, color: '#f7dc6f' }] },
 };
 
+const mk = (name, lvl, spr, tint, size) => ({ name, lvl, spr, tint, size,
+  hp: Math.round(lvl * lvl * 1.6 + 20), dmg: [Math.round(lvl * 2.2), Math.round(lvl * 3.4)], def: Math.round(lvl * 0.85),
+  exp: Math.round(lvl * lvl * 0.6 * (1 + lvl / 60) + lvl * 6), zen: lvl * 8, spd: Math.min(110, 55 + lvl * 1.5) });
+const mkBoss = (name, lvl, spr, tint, size) => { const b = mk(name, lvl, spr, tint, size);
+  return Object.assign(b, { boss: true, hp: b.hp * 5, exp: b.exp * 4, zen: b.zen * 8, dmg: [b.dmg[0], Math.round(b.dmg[1] * 1.2)], spd: 90 }); };
+const GOLD = ['#f1c40f', 0.55];
+const COUNTS = [22, 18, 16, 14, 12];
 const MONSTERS = [
-  { name: 'Spider',        lvl: 2,  hp: 40,   dmg: [4, 8],     def: 1,  exp: 12,  zen: 8,   spd: 60,  color: '#7f8c8d', size: 14, count: 22 },
-  { name: 'Budge Dragon',  lvl: 6,  hp: 120,  dmg: [10, 16],   def: 3,  exp: 40,  zen: 25,  spd: 70,  color: '#d35400', size: 17, count: 18 },
-  { name: 'Bull Fighter',  lvl: 12, hp: 320,  dmg: [22, 34],   def: 8,  exp: 120, zen: 60,  spd: 85,  color: '#8e5b3a', size: 20, count: 16 },
-  { name: 'Hound',         lvl: 20, hp: 700,  dmg: [42, 60],   def: 15, exp: 300, zen: 120, spd: 100, color: '#566573', size: 18, count: 14 },
-  { name: 'Lich',          lvl: 30, hp: 1500, dmg: [80, 110],  def: 25, exp: 700, zen: 250, spd: 75,  color: '#5b2c83', size: 20, count: 12 },
+  // Lorencia
+  mk('Spider', 2, 'spider', null, 14), mk('Budge Dragon', 6, 'budge', null, 17), mk('Bull Fighter', 12, 'bull', null, 20),
+  mk('Hound', 20, 'hound', null, 18), mk('Lich', 30, 'lich', null, 20),
+  // Noria
+  mk('Goblin', 10, 'goblin', null, 15), mk('Poison Slime', 14, 'slime', ['#2ecc71', 0.45], 16),
+  mk('Wolf', 18, 'wolf', null, 18), mk('Elite Goblin', 23, 'goblin', ['#c0392b', 0.45], 19),
+  // Devias
+  mk('Ice Monster', 27, 'slime', ['#5dade2', 0.6], 18), mk('Hommerd', 31, 'bull', ['#5dade2', 0.4], 21),
+  mk('Snow Bat', 35, 'budge', ['#ecf0f1', 0.6], 18), mk('Ice Queen', 40, 'woman', ['#85c1e9', 0.5], 22),
+  // Dungeon
+  mk('Skeleton', 38, 'ghost', null, 19), mk('Larva', 42, 'spider', ['#c0392b', 0.5], 18),
+  mk('Death Crab', 46, 'crab', null, 20), mk('Shadow Knight', 50, 'dk', ['#000000', 0.55], 21),
+  // Atlans
+  mk('Sea Crab', 52, 'crab', ['#3498db', 0.5], 20), mk('Vepar', 56, 'slime', ['#8e44ad', 0.55], 20),
+  mk('Bahamut', 60, 'hound', ['#1abc9c', 0.5], 21), mk('Sea Giant', 66, 'bull', ['#1abc9c', 0.5], 24),
 ];
-const BOSS = { name: 'Golden Budge Dragon', lvl: 25, hp: 6000, dmg: [60, 90], def: 20, exp: 3000, zen: 1500, spd: 90, color: '#f1c40f', size: 34, boss: true };
-
+// floor / decor entries: [sprite, tintColor?, tintAlpha?]; zone i uses floor2 from `dirtFrom`
+const MAPS = [
+  { id: 0, name: 'Lorencia', req: 1, w: 2600, h: 1800, town: { x: 1300, y: 900, r: 230 }, ring: 230, mons: [0, 1, 2, 3, 4],
+    floor: ['grass'], floor2: ['dirt'], dirtFrom: 2, townTint: null, bg: '#150f1c',
+    tints: ['rgba(0,0,0,0)', 'rgba(200,170,60,.07)', 'rgba(120,60,20,.18)', 'rgba(70,20,70,.26)', 'rgba(20,0,40,.38)'],
+    decor: [['tree_g'], ['tree_o'], ['bush'], ['mush'], ['flower']], decorN: 150, boss: mkBoss('Golden Budge Dragon', 25, 'budge', GOLD, 34) },
+  { id: 1, name: 'Noria', req: 10, w: 2200, h: 1600, town: { x: 1100, y: 800, r: 200 }, ring: 160, mons: [5, 6, 7, 8],
+    floor: ['grass', '#0b5d3b', 0.45], floor2: ['grass', '#063d2a', 0.6], dirtFrom: 2, townTint: ['#2e8b57', 0.25], bg: '#06251a',
+    tints: ['rgba(0,0,0,0)', 'rgba(0,80,40,.12)', 'rgba(0,40,30,.25)', 'rgba(0,20,20,.38)'],
+    decor: [['tree_g'], ['tree_g', '#0b5d3b', 0.3], ['bush', '#2ecc71', 0.3], ['mush']], decorN: 280, boss: mkBoss('Golden Goblin', 30, 'goblin', GOLD, 30) },
+  { id: 2, name: 'Devias', req: 25, w: 2200, h: 1600, town: { x: 1100, y: 800, r: 200 }, ring: 160, mons: [9, 10, 11, 12],
+    floor: ['stone', '#ecf7ff', 0.72], floor2: ['stone', '#b8d4ea', 0.62], dirtFrom: 2, townTint: ['#9fc5e8', 0.35], bg: '#cfe3f5',
+    tints: ['rgba(120,180,255,.04)', 'rgba(90,150,240,.12)', 'rgba(60,110,200,.22)', 'rgba(30,60,140,.32)'],
+    decor: [['tree_g', '#ffffff', 0.75], ['bush', '#ffffff', 0.7]], decorN: 160, boss: mkBoss('Golden Ice Queen', 45, 'woman', GOLD, 34) },
+  { id: 3, name: 'Dungeon', req: 35, w: 2200, h: 1600, town: { x: 1100, y: 800, r: 200 }, ring: 160, mons: [13, 14, 15, 16],
+    floor: ['stone', '#000000', 0.55], floor2: ['stone', '#1a0808', 0.7], dirtFrom: 2, townTint: ['#5a4a4a', 0.3], bg: '#0a0808',
+    tints: ['rgba(0,0,0,.05)', 'rgba(40,0,0,.18)', 'rgba(70,0,0,.3)', 'rgba(90,0,20,.42)'],
+    decor: [['mush', '#7f8c8d', 0.5]], decorN: 90, boss: mkBoss('Golden Death Knight', 58, 'dk', GOLD, 34) },
+  { id: 4, name: 'Atlans', req: 50, w: 2200, h: 1600, town: { x: 1100, y: 800, r: 200 }, ring: 160, mons: [17, 18, 19, 20],
+    floor: ['dirt', '#1e6fae', 0.6], floor2: ['dirt', '#0b3d66', 0.7], dirtFrom: 2, townTint: ['#2874a6', 0.35], bg: '#061a2e',
+    tints: ['rgba(0,120,200,.08)', 'rgba(0,90,180,.18)', 'rgba(0,50,140,.3)', 'rgba(0,20,90,.42)'],
+    decor: [['bush', '#1abc9c', 0.5], ['mush', '#3498db', 0.4]], decorN: 160, boss: mkBoss('Golden Kraken', 72, 'crab', GOLD, 36) },
+];
 const ITEM_TABLES = {
   weapon: {
-    DK:  ['Kris', 'Short Sword', 'Rapier', 'Katana', 'Sword of Assassin', 'Blade', 'Gladius', 'Falchion'],
-    DW:  ['Skull Staff', 'Angelic Staff', 'Serpent Staff', 'Thunder Staff', 'Gorgon Staff', 'Legendary Staff', 'Resurrection Staff', 'Chaos Lightning Staff'],
-    ELF: ['Short Bow', 'Bow', 'Elven Bow', 'Battle Bow', 'Tiger Bow', 'Silver Bow', 'Chaos Nature Bow', 'Celestial Bow'] },
-  armor: ['Leather Armor', 'Bronze Armor', 'Scale Armor', 'Brass Armor', 'Plate Armor', 'Dragon Armor', 'Legendary Armor', 'Sphinx Armor'],
-  wings: ['Wings of Elf', 'Wings of Heaven', 'Wings of Satan', 'Wings of Spirits', 'Wings of Soul', 'Wings of Dragon', 'Wings of Darkness', 'Cape of Lord'],
-  ring:  ['Ring of Ice', 'Ring of Poison', 'Ring of Fire', 'Ring of Earth', 'Ring of Wind', 'Ring of Magic', 'Ring of Life', 'Ring of Dragon'],
+    DK:  ['Kris', 'Short Sword', 'Rapier', 'Katana', 'Sword of Assassin', 'Blade', 'Gladius', 'Falchion', 'Dark Breaker', 'Sword of Destruction', 'Thunder Blade', 'Lightning Sword'],
+    DW:  ['Skull Staff', 'Angelic Staff', 'Serpent Staff', 'Thunder Staff', 'Gorgon Staff', 'Legendary Staff', 'Resurrection Staff', 'Chaos Lightning Staff', 'Staff of Destruction', 'Archangel Staff', 'Kundun Staff', 'Grand Soul Staff'],
+    ELF: ['Short Bow', 'Bow', 'Elven Bow', 'Battle Bow', 'Tiger Bow', 'Silver Bow', 'Chaos Nature Bow', 'Celestial Bow', 'Divine Crossbow', 'Arrow Viper Bow', 'Albatross Bow', 'Great Reign Crossbow'] },
+  armor: ['Leather Armor', 'Bronze Armor', 'Scale Armor', 'Brass Armor', 'Plate Armor', 'Dragon Armor', 'Legendary Armor', 'Sphinx Armor', 'Storm Crow Armor', 'Black Dragon Armor', 'Dark Phoenix Armor', 'Grand Soul Armor'],
+  wings: ['Wings of Elf', 'Wings of Heaven', 'Wings of Satan', 'Wings of Spirits', 'Wings of Soul', 'Wings of Dragon', 'Wings of Darkness', 'Cape of Lord', 'Wings of Storm', 'Wings of Eternal', 'Wings of Ruin', 'Cape of Fighter'],
+  ring:  ['Ring of Ice', 'Ring of Poison', 'Ring of Fire', 'Ring of Earth', 'Ring of Wind', 'Ring of Magic', 'Ring of Life', 'Ring of Dragon', 'Ring of Honor', 'Ring of Wizardry', 'Ring of Warrior', 'Ring of Blood'],
 };
 const SLOTS = ['weapon', 'armor', 'wings', 'ring'];
 
@@ -68,12 +106,16 @@ const QUESTS = [
   { title: 'Lich Purge',        mon: 4,      count: 15, exp: 25000, zen: 8000 },
   { title: 'Golden Invasion',   mon: 'boss', count: 1,  exp: 30000, zen: 15000 },
 ];
-const monName = m => m === 'boss' ? BOSS.name : MONSTERS[m].name;
+for (let i = 5; i < MONSTERS.length; i++) QUESTS.push({ title: 'Hunt: ' + MONSTERS[i].name, mon: i, count: 20, exp: Math.round(20 * MONSTERS[i].exp * 1.2), zen: 20 * MONSTERS[i].zen });
+const monName = m => m === 'boss' ? 'Golden Boss (bất kỳ map)' : MONSTERS[m].name;
+const monMap = m => m === 'boss' ? '' : ' tại ' + MAPS.find(x => x.mons.includes(m)).name;
 
-const NPCS = [
-  { id: 'shop',  name: 'Merchant',     x: TOWN.x - 110, y: TOWN.y - 60, color: '#3498db' },
-  { id: 'quest', name: 'Quest Master', x: TOWN.x + 110, y: TOWN.y - 60, color: '#e67e22' },
-];
+let NPCS = [];
+const buildNpcs = () => { NPCS = [
+  { id: 'shop',  name: 'Merchant',     spr: 'npc_shop',  x: TOWN.x - 110, y: TOWN.y - 60 },
+  { id: 'quest', name: 'Quest Master', spr: 'npc_quest', x: TOWN.x + 110, y: TOWN.y - 60 },
+  { id: 'warp',  name: 'Gatekeeper',   spr: 'lich', tint: ['#9b59b6', 0.45], x: TOWN.x, y: TOWN.y - 130 },
+]; };
 
 // ---------------------------------------------------------------- state
 let P = null;            // player
@@ -85,10 +127,47 @@ const cam = { x: 0, y: 0 };
 
 const canvas = $('c'), ctx = canvas.getContext('2d');
 
+// ---------------------------------------------------------------- sprites
+const SPR = {}, TINTED = {}, ICONURL = {};
+function tintCanvas(src, color, alpha) {
+  const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const g = c.getContext('2d'); g.drawImage(src, 0, 0); g.globalCompositeOperation = 'source-atop';
+  g.globalAlpha = alpha; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height); return c;
+}
+function getSpr(name, tint) {
+  const base = SPR[name]; if (!base || !tint) return base;
+  const k = name + tint[0] + tint[1]; return TINTED[k] || (TINTED[k] = tintCanvas(base, tint[0], tint[1]));
+}
+const iconName = it => it.slot === 'weapon' ? { DK: 'sword', DW: 'staff', ELF: 'bow' }[it.cls] : it.slot === 'armor' ? 'shield' : it.slot;
+const iconURL = n => ICONURL[n] || (ICONURL[n] = SPR[n] ? SPR[n].toDataURL() : '');
+function procIcon(fn) { const c = document.createElement('canvas'); c.width = c.height = 32; fn(c.getContext('2d')); return c; }
+function makeProcedural() {
+  SPR.wings = procIcon(g => { g.lineWidth = 1.5; g.strokeStyle = '#3b4b66'; g.fillStyle = '#d6ecff';
+    for (const d of [-1, 1]) { g.beginPath(); g.moveTo(16, 20); g.quadraticCurveTo(16 + d * 6, 2, 16 + d * 15, 5); g.quadraticCurveTo(16 + d * 10, 10, 16 + d * 15, 13);
+      g.quadraticCurveTo(16 + d * 9, 16, 16 + d * 13, 22); g.quadraticCurveTo(16 + d * 7, 21, 16, 27); g.closePath(); g.fill(); g.stroke(); } });
+  SPR.ring = procIcon(g => { g.strokeStyle = '#f1c40f'; g.lineWidth = 4; g.beginPath(); g.arc(16, 20, 8, 0, 7); g.stroke();
+    g.fillStyle = '#e74c3c'; g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.arc(16, 10, 4, 0, 7); g.fill(); g.stroke(); });
+  const jewel = col => procIcon(g => { g.fillStyle = col; g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath();
+    g.moveTo(16, 3); g.lineTo(27, 13); g.lineTo(16, 29); g.lineTo(5, 13); g.closePath(); g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(5, 13); g.lineTo(27, 13); g.stroke(); });
+  SPR.jewel_bless = jewel('#3498db'); SPR.jewel_soul = jewel('#f39c12');
+}
+function initSprites(done) {
+  const A = window.ATLAS; if (!A) { makeProcedural(); return done(); }
+  const img = new Image();
+  img.onload = () => {
+    A.names.forEach((n, k) => { const c = document.createElement('canvas'); c.width = c.height = 16;
+      c.getContext('2d').drawImage(img, (k % A.cols) * 16, ((k / A.cols) | 0) * 16, 16, 16, 0, 0, 16, 16); SPR[n] = c; });
+    makeProcedural(); done();
+  };
+  img.onerror = () => { makeProcedural(); done(); };
+  img.src = A.src;
+}
+
 // ---------------------------------------------------------------- items
 const effV = (v, lvl, exc) => v * (1 + 0.1 * lvl) * (exc ? 1.15 : 1);
 function makeItem(slot, tier, cls) {
-  tier = clamp(tier, 0, 7);
+  tier = clamp(tier, 0, 11);
   const it = { id: uid(), slot, tier, lvl: 0, exc: Math.random() < 0.04 };
   if (slot === 'weapon') {
     const base = 4 + tier * 7;
@@ -112,7 +191,7 @@ function itemDesc(it) {
   return `HP +${e(it.hp)}`;
 }
 function randomDrop(monLvl, cls) {
-  const tier = Math.min(7, Math.floor(monLvl / 4));
+  const tier = Math.min(11, Math.floor(monLvl / 5));
   const opts = ['weapon', 'armor', 'ring'];
   if (monLvl >= 8) opts.push('wings');
   const slot = opts[rint(0, opts.length - 1)];
@@ -128,7 +207,7 @@ function newPlayer(cls) {
   const c = CLASSES[cls];
   const p = { cls, level: 1, exp: 0, points: 0, zen: 300, stats: { ...c.base }, hp: 1, mp: 1,
     equip: { weapon: null, armor: null, wings: null, ring: null }, bag: [],
-    hpPot: 5, mpPot: 3, bless: 2, soul: 0, qi: 0, qa: false, qp: 0,
+    map: 0, hpPot: 5, mpPot: 3, bless: 2, soul: 0, qi: 0, qa: false, qp: 0,
     x: TOWN.x, y: TOWN.y + 80, atkCd: 0, cds: [0, 0, 0], potCd: 0, buff: 0, buffPct: 0 };
   p.equip.weapon = makeItem('weapon', 0, cls); p.equip.weapon.exc = false;
   p.equip.armor = makeItem('armor', 0, cls); p.equip.armor.exc = false;
@@ -150,7 +229,7 @@ function calc(p) {
     maxMp: Math.round(20 + p.level * c.mpLvl + s.ene * c.mpEne),
   };
 }
-const expNeed = lvl => Math.floor(80 * lvl * Math.pow(1.1, lvl));
+const expNeed = lvl => Math.floor(80 * lvl * Math.pow(1.09, lvl));
 function addExp(n) {
   P.exp += n;
   while (P.exp >= expNeed(P.level)) {
@@ -166,9 +245,9 @@ function fxRing(x, y, r, color) { fx.push({ x, y, r, color, t: 0.35, max: 0.35 }
 
 // ---------------------------------------------------------------- monsters
 function inTown(o) { return dist(o, TOWN) < TOWN.r; }
-function bandOf(d) { return clamp(Math.floor((d - TOWN.r - 40) / 230), 0, MONSTERS.length - 1); }
+function bandOf(d) { return clamp(Math.floor((d - TOWN.r - 40) / MAP.ring), 0, MAP.mons.length - 1); }
 function spawnMonster(type) {
-  const T = type === 'boss' ? BOSS : MONSTERS[type];
+  const T = type === 'boss' ? MAP.boss : MONSTERS[MAP.mons[type]];
   let x, y, tries = 0;
   do {
     x = rnd(60, WORLD_W - 60); y = rnd(60, WORLD_H - 60); tries++;
@@ -178,7 +257,14 @@ function spawnMonster(type) {
 }
 function initMonsters() {
   monsters = [];
-  MONSTERS.forEach((T, i) => { for (let k = 0; k < T.count; k++) spawnMonster(i); });
+  MAP.mons.forEach((_, i) => { for (let k = 0; k < COUNTS[i]; k++) spawnMonster(i); });
+}
+function loadMap(id, keepPos) {
+  MAP = MAPS[id]; WORLD_W = MAP.w; WORLD_H = MAP.h; TOWN = MAP.town; P.map = id;
+  buildNpcs(); buildMapAssets(); projectiles = []; loot = []; texts = []; fx = []; target = null; dest = null; bossTimer = 30;
+  initMonsters();
+  if (!keepPos || !(P.x >= 0 && P.x <= WORLD_W && P.y >= 0 && P.y <= WORLD_H)) { P.x = TOWN.x; P.y = TOWN.y + 80; }
+  save();
 }
 function killMonster(m) {
   m.dead = true;
@@ -192,7 +278,7 @@ function killMonster(m) {
       P.qp++; if (P.qp >= q.count) log(`Quest "${q.title}" hoàn thành! Về gặp Quest Master.`, '#e67e22');
     }
   }
-  if (!T.boss) setTimeout(() => spawnMonster(m.type), 8000);
+  if (!T.boss) { const mid = MAP.id; setTimeout(() => { if (MAP.id === mid) spawnMonster(m.type); }, 8000); }
   refresh();
 }
 function dropLoot(m) {
@@ -394,58 +480,79 @@ function updateMisc(dt) {
   bossTimer -= dt;
   if (bossTimer <= 0 && !monsters.some(m => m.t.boss && !m.dead)) {
     const b = spawnMonster('boss'); bossTimer = 150;
-    log(`⚠ ${BOSS.name} xuất hiện quanh (${Math.round(b.x)}, ${Math.round(b.y)})!`, '#f1c40f');
+    log(`⚠ ${MAP.boss.name} xuất hiện quanh (${Math.round(b.x)}, ${Math.round(b.y)})!`, '#f1c40f');
   }
   if (performance.now() - lastSave > 10000) save();
 }
 
 // ---------------------------------------------------------------- render
-const rocks = Array.from({ length: 140 }, (_, i) => { const r = Math.sin(i * 91.7) * 43758.5; const q = Math.sin(i * 12.3) * 9631.1;
-  return { x: (r - Math.floor(r)) * WORLD_W, y: (q - Math.floor(q)) * WORLD_H, s: 4 + (i % 5) * 2 }; });
-const ZONE_COLORS = ['#22301f', '#2b3320', '#33301f', '#33261f', '#2a1f33'];
-function draw() {
-  cam.x = clamp(P.x - W / 2, 0, WORLD_W - W); cam.y = clamp(P.y - H / 2, 0, WORLD_H - H);
-  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#150f1c'; ctx.fillRect(0, 0, W, H);
-  ctx.translate(-cam.x, -cam.y);
-  ctx.fillStyle = '#150f1c'; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-  for (let i = MONSTERS.length - 1; i >= 0; i--) {
-    ctx.beginPath(); ctx.arc(TOWN.x, TOWN.y, TOWN.r + 40 + (i + 1) * 230, 0, 7); ctx.fillStyle = ZONE_COLORS[i]; ctx.fill();
+let PAT = {}, decor = [];
+function buildMapAssets() {
+  PAT = {}; decor = []; if (!SPR.grass) return;
+  const mkPat = f => { const cv = getSpr(f[0], f[1] ? [f[1], f[2]] : null); const c = document.createElement('canvas'); c.width = c.height = 32;
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(cv, 0, 0, 32, 32); return ctx.createPattern(c, 'repeat'); };
+  PAT.base = mkPat(MAP.floor); PAT.alt = mkPat(MAP.floor2); PAT.town = mkPat(['stone'].concat(MAP.townTint || []));
+  let seed = MAP.id * 977 + 13; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < MAP.decorN; i++) {
+    const d = MAP.decor[Math.floor(rand() * MAP.decor.length)], x = rand() * WORLD_W, y = rand() * WORLD_H;
+    if (dist({ x, y }, TOWN) < TOWN.r + 30) continue;
+    decor.push({ x, y, s: 26 + Math.floor(rand() * 16), cv: getSpr(d[0], d[1] ? [d[1], d[2]] : null) });
   }
-  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, WORLD_W, WORLD_H); ctx.clip();
-  ctx.strokeStyle = 'rgba(255,255,255,.04)'; ctx.lineWidth = 1;
-  for (let x = 0; x <= WORLD_W; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke(); }
-  for (let y = 0; y <= WORLD_H; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke(); }
-  ctx.restore();
-  ctx.fillStyle = 'rgba(255,255,255,.07)'; rocks.forEach(r => { if (dist(r, TOWN) > TOWN.r + 20) { ctx.beginPath(); ctx.arc(r.x, r.y, r.s, 0, 7); ctx.fill(); } });
+  decor.sort((a, b) => a.y - b.y);
+}
+function drawSprite(cv, x, y, w) { if (!cv) return false; ctx.imageSmoothingEnabled = false; ctx.drawImage(cv, x - w / 2, y - w * 0.68, w, w); return true; }
+function shadow(x, y, r) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x, y + r * 0.35, r, r * 0.4, 0, 0, 7); ctx.fill(); }
+const zoneR = i => TOWN.r + 40 + (i + 1) * MAP.ring;
+function draw() {
+  const now = performance.now() / 1000;
+  cam.x = clamp(P.x - W / 2, 0, WORLD_W - W); cam.y = clamp(P.y - H / 2, 0, WORLD_H - H);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = MAP.bg; ctx.fillRect(0, 0, W, H);
+  ctx.translate(-cam.x, -cam.y); ctx.textAlign = 'center';
+  const n = MAP.mons.length;
+  for (let i = n - 1; i >= 0; i--) {
+    for (const fill of [i >= MAP.dirtFrom ? (PAT.alt || '#222') : (PAT.base || '#2a3a2a'), MAP.tints[i]]) {
+      ctx.fillStyle = fill;
+      if (i === n - 1) ctx.fillRect(0, 0, WORLD_W, WORLD_H); else { ctx.beginPath(); ctx.arc(TOWN.x, TOWN.y, zoneR(i), 0, 7); ctx.fill(); }
+    }
+  }
+  decor.forEach(d => { if (d.x > cam.x - 40 && d.x < cam.x + W + 40 && d.y > cam.y - 40 && d.y < cam.y + H + 60) drawSprite(d.cv, d.x, d.y, d.s * 1.6); });
   // town
-  ctx.beginPath(); ctx.arc(TOWN.x, TOWN.y, TOWN.r, 0, 7); ctx.fillStyle = '#4a4f5c'; ctx.fill();
-  ctx.lineWidth = 4; ctx.strokeStyle = '#8b95a8'; ctx.stroke();
-  ctx.fillStyle = '#aab'; ctx.font = '13px system-ui'; ctx.textAlign = 'center'; ctx.fillText('LORENCIA (Safe Zone)', TOWN.x, TOWN.y + 20);
-  NPCS.forEach(n => { ctx.fillStyle = n.color; ctx.fillRect(n.x - 12, n.y - 12, 24, 24); ctx.fillStyle = '#fff'; ctx.fillText(n.name, n.x, n.y - 18); });
+  ctx.beginPath(); ctx.arc(TOWN.x, TOWN.y, TOWN.r, 0, 7); ctx.fillStyle = PAT.town || '#4a4f5c'; ctx.fill();
+  ctx.lineWidth = 5; ctx.strokeStyle = '#3a3f4c'; ctx.stroke(); ctx.lineWidth = 2; ctx.strokeStyle = '#aab3c5'; ctx.stroke();
+  ctx.fillStyle = '#e8ecf5'; ctx.font = 'bold 14px system-ui'; ctx.fillText(`${MAP.name.toUpperCase()} (Safe Zone)`, TOWN.x, TOWN.y + 30);
+  NPCS.forEach(nn => { shadow(nn.x, nn.y, 16); drawSprite(getSpr(nn.spr, nn.tint), nn.x, nn.y, 44) || (ctx.fillStyle = '#e67e22', ctx.fillRect(nn.x - 12, nn.y - 12, 24, 24));
+    ctx.fillStyle = '#fff'; ctx.font = '12px system-ui'; ctx.fillText(nn.name, nn.x, nn.y - 36); });
   // loot
   loot.forEach(l => {
-    const col = { zen: '#f1c40f', item: '#ecf0f1', hpPot: '#e74c3c', mpPot: '#3498db', bless: '#5dade2', soul: '#f39c12' }[l.kind];
-    ctx.fillStyle = l.kind === 'item' && l.data.exc ? '#2ecc71' : col;
-    ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(Math.PI / 4); ctx.fillRect(-5, -5, 10, 10); ctx.restore();
-    if (l.kind === 'item') { ctx.fillStyle = ctx.fillStyle; ctx.font = '11px system-ui'; ctx.fillText(itemName(l.data), l.x, l.y - 10); }
+    const icon = l.kind === 'item' ? iconName(l.data) : { zen: 'coin', hpPot: 'hp_pot', mpPot: 'mp_pot', bless: 'jewel_bless', soul: 'jewel_soul' }[l.kind];
+    const bob = Math.sin(now * 4 + l.x) * 2;
+    if (l.kind === 'item' && l.data.exc) { ctx.fillStyle = 'rgba(46,204,113,.35)'; ctx.beginPath(); ctx.arc(l.x, l.y, 14, 0, 7); ctx.fill(); }
+    if (!drawSprite(SPR[icon], l.x, l.y + bob, 24)) { ctx.fillStyle = '#f1c40f'; ctx.fillRect(l.x - 5, l.y - 5, 10, 10); }
+    if (l.kind === 'item') { ctx.fillStyle = l.data.exc ? '#2ecc71' : '#ecf0f1'; ctx.font = '11px system-ui'; ctx.fillText(itemName(l.data), l.x, l.y - 18); }
   });
   // monsters
   monsters.forEach(m => {
-    if (m.dead) return; const T = m.t;
-    ctx.beginPath(); ctx.arc(m.x, m.y, T.size, 0, 7); ctx.fillStyle = T.color; ctx.fill();
-    ctx.lineWidth = m === target ? 3 : 1; ctx.strokeStyle = m === target ? '#fff' : '#000'; ctx.stroke();
-    ctx.fillStyle = '#111'; ctx.fillRect(m.x - T.size, m.y - T.size - 9, T.size * 2, 4);
-    ctx.fillStyle = '#e74c3c'; ctx.fillRect(m.x - T.size, m.y - T.size - 9, T.size * 2 * Math.max(0, m.hp / T.hp), 4);
-    if (m === target || T.boss) { ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.fillText(`${T.name} Lv${T.lvl}`, m.x, m.y - T.size - 13); }
+    if (m.dead) return; const T = m.t, w = T.size * 2.6, bob = Math.sin(now * 4 + m.hx) * 1.5, y = m.y + bob;
+    if (T.boss) { ctx.fillStyle = 'rgba(241,196,15,.22)'; ctx.beginPath(); ctx.arc(m.x, m.y, T.size * 1.4, 0, 7); ctx.fill(); }
+    shadow(m.x, m.y, T.size);
+    if (!drawSprite(getSpr(T.spr, T.tint), m.x, y, w)) { ctx.beginPath(); ctx.arc(m.x, m.y, T.size, 0, 7); ctx.fillStyle = '#c0392b'; ctx.fill(); }
+    if (m === target) { ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.ellipse(m.x, m.y + T.size * 0.4, T.size * 0.9, T.size * 0.4, 0, 0, 7); ctx.stroke(); }
+    const by = m.y - w * 0.7 - 6;
+    ctx.fillStyle = '#111'; ctx.fillRect(m.x - T.size, by, T.size * 2, 4);
+    ctx.fillStyle = '#e74c3c'; ctx.fillRect(m.x - T.size, by, T.size * 2 * Math.max(0, m.hp / T.hp), 4);
+    if (m === target || T.boss) { ctx.fillStyle = T.boss ? '#f1c40f' : '#fff'; ctx.font = '11px system-ui'; ctx.fillText(`${T.name} Lv${T.lvl}`, m.x, by - 4); }
   });
   // projectiles
-  projectiles.forEach(p => { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 7); ctx.fill(); });
+  projectiles.forEach(p => { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 7); ctx.fill(); ctx.strokeStyle = '#fff8'; ctx.stroke(); });
   // player
   const c = CLASSES[P.cls];
-  if (P.equip.wings) { ctx.fillStyle = 'rgba(200,220,255,.55)'; ctx.beginPath(); ctx.ellipse(P.x - 18, P.y, 16, 8, -0.5, 0, 7); ctx.ellipse(P.x + 18, P.y, 16, 8, 0.5, 0, 7); ctx.fill(); }
-  ctx.beginPath(); ctx.arc(P.x, P.y, 15, 0, 7); ctx.fillStyle = c.color; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = P.buff > 0 ? '#e67e22' : '#fff'; ctx.stroke();
-  ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.fillText(`${c.name} Lv${P.level}`, P.x, P.y - 22);
+  shadow(P.x, P.y, 16);
+  if (P.equip.wings) drawSprite(SPR.wings, P.x, P.y - 4, 62);
+  if (P.buff > 0) { ctx.strokeStyle = '#e67e22'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(P.x, P.y - 4, 24, 0, 7); ctx.stroke(); }
+  if (!drawSprite(SPR[P.cls.toLowerCase()], P.x, P.y, 46)) { ctx.beginPath(); ctx.arc(P.x, P.y, 15, 0, 7); ctx.fillStyle = c.color; ctx.fill(); }
+  if (P.equip.armor) drawSprite(SPR.shield, P.x - 15, P.y + 4, 18);
+  if (P.equip.weapon) drawSprite(SPR[iconName(P.equip.weapon)], P.x + 16, P.y + 2, 24);
+  ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.fillText(`${c.name} Lv${P.level}`, P.x, P.y - 36);
   // fx
   fx.forEach(f => { ctx.globalAlpha = f.t / f.max; ctx.strokeStyle = f.color; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - f.t / f.max * 0.3), 0, 7); ctx.stroke(); ctx.globalAlpha = 1; });
   texts.forEach(t => { ctx.globalAlpha = clamp(t.t / 0.5, 0, 1); ctx.fillStyle = t.color; ctx.font = (t.big ? 'bold 18px' : '13px') + ' system-ui'; ctx.fillText(t.s, t.x, t.y); ctx.globalAlpha = 1; });
@@ -473,12 +580,15 @@ function drawHud() {
   ctx.fillStyle = '#8b95a8'; ctx.beginPath(); ctx.arc(mx + TOWN.x * sx, my + TOWN.y * sy, TOWN.r * sx, 0, 7); ctx.fill();
   monsters.forEach(m => { ctx.fillStyle = m.t.boss ? '#f1c40f' : '#e74c3c'; ctx.fillRect(mx + m.x * sx - 1, my + m.y * sy - 1, m.t.boss ? 4 : 2, m.t.boss ? 4 : 2); });
   ctx.fillStyle = '#fff'; ctx.fillRect(mx + P.x * sx - 2, my + P.y * sy - 2, 4, 4);
+  ctx.textAlign = 'right'; ctx.font = 'bold 13px system-ui'; ctx.fillStyle = '#fff'; ctx.fillText(MAP.name, W - 12, my - 8);
 }
 
 // ---------------------------------------------------------------- UI panels
 function stat(name, key) {
   return `<div class="row"><span>${name} <b>${P.stats[key]}</b></span>${P.points ? `<span><button class="b" data-act="stat" data-k="${key}" data-n="1">+1</button> <button class="b" data-act="stat" data-k="${key}" data-n="5">+5</button></span>` : ''}</div>`;
 }
+const ico = n => `<img class="ic" src="${iconURL(n)}">`;
+const itemCell = it => `<span style="display:flex;align-items:center"><img class="ic${it.exc ? ' xc' : ''}" src="${iconURL(iconName(it))}"><span class="${it.exc ? 'exc' : ''}">${itemName(it)}<small>${itemDesc(it)}${it.cls ? ' · ' + it.cls : ''}</small></span></span>`;
 function renderTab() {
   const el = $('body'), s = calc(P), c = CLASSES[P.cls];
   if (tab === 'char') {
@@ -488,13 +598,13 @@ function renderTab() {
       <div class="row"><span>Sát thương</span><span>${Math.round(s.min * s.dmgMul)}-${Math.round(s.max * s.dmgMul)}</span></div>
       <div class="row"><span>Phòng thủ</span><span>${Math.round(s.def)}</span></div>
       <div class="row"><span>Né / Chí mạng</span><span>${(s.dodge * 100).toFixed(1)}% / ${(s.crit * 100).toFixed(0)}%</span></div>
-      <div class="row"><span>Jewel Bless / Soul</span><span>${P.bless} / ${P.soul}</span></div>
+      <div class="row"><span>${ico('jewel_bless')}${P.bless} ${ico('jewel_soul')}${P.soul}</span><span class="dim">Bless / Soul</span></div>
       <h4>Trang bị</h4>` + SLOTS.map(sl => { const it = P.equip[sl];
-        return `<div class="row"><span>${it ? `<span class="${it.exc ? 'exc' : ''}">${itemName(it)}</span><small>${itemDesc(it)}</small>` : `<span class="dim">(${sl} trống)</span>`}</span>${it ? `<span><button class="b" data-act="unequip" data-s="${sl}">Tháo</button> <button class="b" data-act="upg" data-id="${it.id}">Nâng</button></span>` : ''}</div>`; }).join('')
+        return `<div class="row">${it ? itemCell(it) : `<span class="dim">(${sl} trống)</span>`}${it ? `<span><button class="b" data-act="unequip" data-s="${sl}">Tháo</button> <button class="b" data-act="upg" data-id="${it.id}">Nâng</button></span>` : ''}</div>`; }).join('')
       + `<p><button class="b" data-act="reset">Xóa save / chọn lại class</button></p>`;
   } else if (tab === 'bag') {
     el.innerHTML = `<div class="dim">Túi đồ ${P.bag.length}/${MAX_BAG} · Bless ${P.bless} · Soul ${P.soul}</div>` +
-      (P.bag.map(it => `<div class="row"><span class="${it.exc ? 'exc' : ''}">${itemName(it)}<small>${itemDesc(it)} · ${it.slot}${it.cls ? ' · ' + it.cls : ''}</small></span>
+      (P.bag.map(it => `<div class="row">${itemCell(it)}
         <span><button class="b" data-act="equip" data-id="${it.id}">Mặc</button> <button class="b" data-act="upg" data-id="${it.id}">Nâng</button> <button class="b" data-act="sell" data-id="${it.id}">Bán ${Math.round(itemValue(it) * 0.4)}</button></span></div>`).join('') || '<p class="dim">Trống</p>') +
       `<p class="dim">Nâng cấp: +0→+6 dùng Jewel of Bless (chắc chắn). +6→+13 dùng Jewel of Soul (có tỉ lệ; từ +9 thất bại sẽ tụt 1 cấp).</p>`;
   } else if (tab === 'quest') {
@@ -502,19 +612,25 @@ function renderTab() {
     if (!q) el.innerHTML = '<p class="gold">Bạn đã hoàn thành toàn bộ quest!</p>';
     else {
       const done = P.qa && P.qp >= q.count;
-      el.innerHTML = `<h4 class="gold">${q.title}</h4><p>Tiêu diệt <b>${q.count}</b> ${monName(q.mon)}.</p><p>Thưởng: ${q.exp.toLocaleString()} EXP, ${q.zen.toLocaleString()} zen</p>` +
+      el.innerHTML = `<h4 class="gold">${q.title}</h4><p>Tiêu diệt <b>${q.count}</b> ${monName(q.mon)}${monMap(q.mon)}.</p><p>Thưởng: ${q.exp.toLocaleString()} EXP, ${q.zen.toLocaleString()} zen</p>` +
         (P.qa ? `<p>Tiến độ: <b>${P.qp}/${q.count}</b></p>` : '') +
         (!P.qa ? '<button class="b" data-act="qaccept">Nhận quest</button>' : done ? '<button class="b" data-act="qclaim">Trả quest</button>' : '<span class="dim">Đang thực hiện…</span>');
     }
   } else if (tab === 'shop') {
-    const near = NPCS.some(n => n.id === 'shop' && dist(n, P) < 160);
-    const buy = (label, price, act, extra) => `<div class="row"><span>${label}</span><button class="b" data-act="${act}" ${extra || ''}>${price} zen</button></div>`;
+    const near = nearNpc('shop');
+    const buy = (label, price, act, extra) => `<div class="row"><span style="display:flex;align-items:center">${label}</span><button class="b" data-act="${act}" ${extra || ''}>${price} zen</button></div>`;
     el.innerHTML = (near ? '' : '<p class="dim">Hãy lại gần Merchant để mua bán.</p>') + `<div class="gold">Zen: ${P.zen.toLocaleString()}</div>` +
-      buy('HP Potion', 30, 'buy', 'data-k="hpPot" data-p="30"') + buy('MP Potion', 40, 'buy', 'data-k="mpPot" data-p="40"') +
-      buy('Jewel of Bless', 500, 'buy', 'data-k="bless" data-p="500"') + buy('Jewel of Soul', 900, 'buy', 'data-k="soul" data-p="900"') +
-      shopGear.map((it, i) => buy(`<span>${itemName(it)}<small>${itemDesc(it)}</small></span>`, itemValue(it) * 2, 'buygear', `data-i="${i}"`)).join('');
+      buy(ico('hp_pot') + 'HP Potion', 30, 'buy', 'data-k="hpPot" data-p="30"') + buy(ico('mp_pot') + 'MP Potion', 40, 'buy', 'data-k="mpPot" data-p="40"') +
+      buy(ico('jewel_bless') + 'Jewel of Bless', 500, 'buy', 'data-k="bless" data-p="500"') + buy(ico('jewel_soul') + 'Jewel of Soul', 900, 'buy', 'data-k="soul" data-p="900"') +
+      shopGear.map((it, i) => buy(itemCell(it), itemValue(it) * 2, 'buygear', `data-i="${i}"`)).join('');
+  } else if (tab === 'warp') {
+    const near = nearNpc('warp');
+    el.innerHTML = (near ? '' : '<p class="dim">Hãy lại gần Gatekeeper (NPC tím) trong thị trấn để dịch chuyển.</p>') + `<div class="gold">Zen: ${P.zen.toLocaleString()}</div>` +
+      MAPS.map(m => { const cost = m.id * m.id * 100, here = m.id === MAP.id;
+        return `<div class="row"><span>${m.name}${here ? ' <span class="exc">(đang ở)</span>' : ''}<small>Yêu cầu Lv ${m.req} · quái Lv ${MONSTERS[m.mons[0]].lvl}-${MONSTERS[m.mons[m.mons.length - 1]].lvl}</small></span>
+          <button class="b" data-act="warp" data-id="${m.id}" ${P.level >= m.req && !here ? '' : 'disabled'}>${cost} zen</button></div>`; }).join('');
   }
-  $('tabs').innerHTML = [['char', 'Nhân vật'], ['bag', 'Túi đồ'], ['quest', 'Quest'], ['shop', 'Shop']]
+  $('tabs').innerHTML = [['char', 'Nhân vật'], ['bag', 'Túi đồ'], ['quest', 'Quest'], ['shop', 'Shop'], ['warp', 'Warp']]
     .map(([k, n]) => `<button data-tab="${k}" class="${k === tab ? 'act' : ''}">${n}</button>`).join('');
 }
 function openPanel(t) { panelOpen = true; tab = t || tab; $('panel').style.display = 'block'; renderTab(); }
@@ -556,6 +672,9 @@ $('panel').addEventListener('click', e => {
   else if (a === 'buy') { if (!nearNpc('shop')) return log('Lại gần Merchant!', '#aaa'); const p = +d.p; if (P.zen >= p) { P.zen -= p; P[d.k]++; } else log('Không đủ zen', '#e74c3c'); }
   else if (a === 'buygear') { if (!nearNpc('shop')) return log('Lại gần Merchant!', '#aaa'); const it = shopGear[+d.i], p = itemValue(it) * 2;
     if (P.bag.length >= MAX_BAG) log('Túi đồ đầy!', '#e74c3c'); else if (P.zen < p) log('Không đủ zen', '#e74c3c'); else { P.zen -= p; P.bag.push({ ...it, id: uid() }); } }
+  else if (a === 'warp') { if (!nearNpc('warp')) return log('Lại gần Gatekeeper!', '#aaa'); const m = MAPS[+d.id], cost = m.id * m.id * 100;
+    if (P.level < m.req) log(`Cần level ${m.req}`, '#e74c3c'); else if (P.zen < cost) log('Không đủ zen', '#e74c3c');
+    else { P.zen -= cost; loadMap(m.id); closePanel(); log(`Đã dịch chuyển đến ${m.name}`, '#5dade2'); return; } }
   else if (a === 'reset') { if (confirm('Xóa toàn bộ tiến trình?')) { try { localStorage.removeItem(SAVE_KEY); } catch (_) {} location.reload(); } return; }
   renderTab();
 });
@@ -612,9 +731,9 @@ function makeShopGear() { shopGear = [makeItem('weapon', 1, P.cls), makeItem('we
 function start(p) {
   P = p; P.cds = [0, 0, 0]; P.atkCd = 0; P.potCd = 0; P.buff = 0;
   $('overlay').style.display = 'none';
-  initMonsters(); makeShopGear(); syncSkillbar();
+  loadMap(P.map || 0, true); makeShopGear(); syncSkillbar();
   log(`Chào mừng ${CLASSES[P.cls].name}! Ra ngoài thị trấn để săn quái. Nhận quest ở Quest Master.`, '#5dade2');
-  window.MU = { get P() { return P; }, get monsters() { return monsters; }, calc, useSkill, spawnMonster };
+  window.MU = { get P() { return P; }, get monsters() { return monsters; }, calc, useSkill, spawnMonster, loadMap, MAPS };
   let last = performance.now();
   (function loop(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -633,5 +752,5 @@ function menu() {
     if (b.dataset.cls) start(newPlayer(b.dataset.cls)); else if (b.id === 'cont') start(saved);
   };
 }
-menu();
+initSprites(menu);
 })();

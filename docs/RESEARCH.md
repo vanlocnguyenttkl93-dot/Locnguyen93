@@ -34,13 +34,14 @@ Tổng hợp từ nguồn công khai (wiki, bài hướng dẫn, GitHub). Dùng 
 
 Đã làm (v0.1, chạy offline trong trình duyệt):
 - 3 class: Dark Knight, Dark Wizard, Fairy Elf, mỗi class 3 skill + đòn đánh thường.
-- Thế giới top-down có thị trấn an toàn (kiểu Lorencia) + 5 vùng quái theo độ khó.
+- 5 map (Lorencia, Noria, Devias, Dungeon, Atlans), mỗi map có thị trấn an toàn, 4-5 vùng quái theo độ khó, boss riêng và Gatekeeper dịch chuyển.
+- Đồ họa pixel-art từ pack CC0 của Kenney.
 - Stat + điểm cộng, level/EXP, HP/MP, potion.
 - Item 4 slot (Weapon / Armor / Wings / Ring), +0..+13, Excellent, Jewel of Bless/Soul.
 - Quest chain, NPC shop, loot rớt dưới đất, Golden Budge Dragon boss định kỳ.
 - Auto-battle (phím F), lưu tự động vào `localStorage`.
 
-Chưa làm (hướng mở rộng): multiplayer/server (có thể tham khảo kiến trúc OpenMU), PvP, guild, map thứ hai, class mở khóa, pet, set bonus.
+Chưa làm (hướng mở rộng): multiplayer/server (có thể tham khảo kiến trúc OpenMU), PvP, guild, Kanturu/Tarkan/Icarus, class mở khóa, pet, set bonus.
 
 ## 5. Về bản quyền
 

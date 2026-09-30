@@ -35,6 +35,22 @@ Hoặc mở thẳng `game/index.html` bằng trình duyệt.
 
 Tiến trình tự lưu vào `localStorage` của trình duyệt.
 
+## Maps
+
+| Map | Yêu cầu | Quái (level) | Boss |
+|---|---|---|---|
+| Lorencia | Lv 1 | Spider, Budge Dragon, Bull Fighter, Hound, Lich (2-30) | Golden Budge Dragon |
+| Noria | Lv 10 | Goblin, Poison Slime, Wolf, Elite Goblin (10-23) | Golden Goblin |
+| Devias | Lv 25 | Ice Monster, Hommerd, Snow Bat, Ice Queen (27-40) | Golden Ice Queen |
+| Dungeon | Lv 35 | Skeleton, Larva, Death Crab, Shadow Knight (38-50) | Golden Death Knight |
+| Atlans | Lv 50 | Sea Crab, Vepar, Bahamut, Sea Giant (52-66) | Golden Kraken |
+
+Mỗi map có thị trấn an toàn với Merchant, Quest Master và **Gatekeeper** (NPC tím) để dịch chuyển giữa các map (tab Warp, tốn zen).
+
 ## Tính năng
 
 3 class (Dark Knight, Dark Wizard, Fairy Elf) · stat + điểm cộng · 5 vùng quái + boss Golden Budge Dragon · item 4 slot +0..+13 · Excellent · Jewel of Bless/Soul · Wings · quest chain · shop · loot rớt đất · auto-battle.
+
+## Hình ảnh
+
+Sprite từ [Kenney](https://kenney.nl) *Tiny Dungeon* và *Tiny Town* (giấy phép CC0), nhúng sẵn trong `game/assets/atlas.js`; icon wings/ring/jewel vẽ bằng code. Xem `game/assets/CREDITS.txt`. Tạo lại atlas: `python3 tools/make_atlas.py <tiny-dungeon-dir> <tiny-town-dir>` (cần Pillow). Không dùng asset của Webzen.

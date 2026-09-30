@@ -29,6 +29,9 @@
   #overlay .cls { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
   #overlay .cls button { width:200px; padding:14px; background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:8px; cursor:pointer; text-align:left; }
   #overlay .cls button:hover { border-color:var(--gold); }
+  .ic { width:28px; height:28px; image-rendering:pixelated; margin-right:6px; flex:none; }
+  .ic.xc { filter:drop-shadow(0 0 3px #2ecc71); }
+  button.b:disabled { opacity:.4; cursor:not-allowed; }
   #help { color:var(--dim); font-size:12px; text-align:center; padding:0 8px 8px; }
 </style>
 </head>
@@ -40,6 +43,7 @@
   <div id="panel"><div id="tabs"></div><div id="body"></div></div>
   <div id="overlay"></div>
 </div>
+<script src="assets/atlas.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

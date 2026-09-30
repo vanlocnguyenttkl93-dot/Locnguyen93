@@ -1,0 +1,5 @@
+Sprites in atlas.js come from Kenney (https://kenney.nl):
+ - Tiny Dungeon 1.0  (CC0)
+ - Tiny Town 1.0     (CC0)
+Licence: Creative Commons Zero, http://creativecommons.org/publicdomain/zero/1.0/
+Procedural icons (wings, ring, jewels) are drawn in code.
