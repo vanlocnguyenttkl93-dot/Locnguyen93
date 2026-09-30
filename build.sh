@@ -10,4 +10,4 @@ inline = lambda m: '<script>\n' + open('game/' + m.group(1), encoding='utf-8').r
 open('dist/MU-Local.html', 'w', encoding='utf-8').write(re.sub(r'<script src="([^"]+)"></script>', inline, html))
 PY
 rm -f dist/MU-Local-source.zip
-zip -qr dist/MU-Local-source.zip README.md docs game build.sh
+zip -qr dist/MU-Local-source.zip README.md docs game server tools build.sh -x "server/OpenMU/*"

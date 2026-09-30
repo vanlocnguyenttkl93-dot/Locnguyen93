@@ -4,6 +4,7 @@ Game ARPG chạy offline trên máy local, lấy cảm hứng từ cơ chế cô
 
 - Tài liệu nghiên cứu: [docs/RESEARCH.md](docs/RESEARCH.md)
 - Game: [game/](game/) (HTML5 + JS thuần, không cần cài đặt)
+- Server MU thật cho client PC bạn đã có (OpenMU): [server/](server/README.md)
 
 ## Cài trên PC nhà (cách nhanh nhất)
 
