@@ -1,6 +1,6 @@
 # MU Local
 
-Game ARPG chạy offline trên máy local, lấy cảm hứng từ cơ chế công khai của MU Online / MU Mobile. Toàn bộ code và đồ họa viết mới — không dùng asset hay code của Webzen.
+Game ARPG chạy offline trên máy local, lấy cảm hứng từ cơ chế công khai của MU Online / MU Mobile. Code viết mới, đồ họa dùng asset CC0 của Kenney — không dùng asset hay code của Webzen.
 
 - Tài liệu nghiên cứu: [docs/RESEARCH.md](docs/RESEARCH.md)
 - Game: [game/](game/) (HTML5 + JS thuần, không cần cài đặt)

@@ -45,7 +45,7 @@ Chưa làm (hướng mở rộng): multiplayer/server (có thể tham khảo ki�
 
 ## 5. Về bản quyền
 
-Toàn bộ code/đồ họa trong `game/` được viết mới; **không** dùng client, model, texture, âm thanh hay code của Webzen. Chỉ dùng ý tưởng cơ chế công khai. Nếu muốn có server MU thật để chạy local, dùng OpenMU (MIT) cùng client bạn sở hữu hợp pháp.
+Code trong `game/` được viết mới, đồ họa dùng pack CC0 của Kenney (xem `game/assets/CREDITS.txt`); **không** dùng client, model, texture, âm thanh hay code của Webzen. Chỉ dùng ý tưởng cơ chế công khai. Nếu muốn có server MU thật để chạy local, dùng OpenMU (MIT) cùng client bạn sở hữu hợp pháp.
 
 ## Nguồn
 
